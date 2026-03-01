@@ -10,6 +10,9 @@ from pathlib import Path
 ENV_PATH = Path(".env")
 
 FIELDS = [
+    ("APP_ENV", "App environment (dev/prod)", "dev"),
+    ("APP_HOST", "API bind host", "0.0.0.0"),
+    ("APP_PORT", "API port", "8000"),
     ("AI_PROVIDER", "Primary AI provider (ollama/gemini)", "ollama"),
     ("FALLBACK_PROVIDER", "Fallback AI provider (gemini/ollama)", "gemini"),
     ("ENABLE_FALLBACK", "Enable fallback true/false", "true"),
@@ -24,6 +27,10 @@ FIELDS = [
     ("WHATSAPP_ACCESS_TOKEN", "WhatsApp Cloud API access token", ""),
     ("WHATSAPP_PHONE_NUMBER_ID", "WhatsApp phone number id", ""),
     ("WHATSAPP_BUSINESS_ACCOUNT_ID", "WhatsApp business account id", ""),
+    ("WHATSAPP_GRAPH_VERSION", "WhatsApp Graph API version", "v21.0"),
+    ("WHATSAPP_API_BASE", "WhatsApp API base", "https://graph.facebook.com"),
+    ("OWNER_WHATSAPP_NUMBER", "Owner WhatsApp number (E.164)", ""),
+    ("CUSTOMER_PHONEBOOK", "JSON map: {\"Raju\":\"+91...\"}", ""),
     ("REMINDER_RUN_TIME", "Reminder run time (HH:MM)", "10:00"),
     ("REMINDER_MIN_DAYS", "Reminder min pending days", "15"),
     ("REMINDER_MIN_AMOUNT", "Reminder min amount", "500"),

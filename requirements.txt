@@ -1,3 +1,6 @@
 openpyxl
 google-generativeai
 python-dotenv
+fastapi
+uvicorn
+apscheduler

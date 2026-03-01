@@ -251,3 +251,61 @@ class KhataDB:
             }
         finally:
             wb.close()
+
+    def get_pending_ledgers_with_age(self) -> list[dict]:
+        """
+        Return positive-balance ledgers with approximate pending age in days.
+        Age is estimated from the last timestamp where running balance crossed
+        from <=0 to >0 for that customer.
+        """
+        wb = load_workbook(self.filepath)
+        try:
+            ws_ledger = wb[self.LEDGER_SHEET]
+            ws_history = wb[self.HISTORY_SHEET]
+
+            current_balances: dict[str, float] = {}
+            for row in range(2, ws_ledger.max_row + 1):
+                name = ws_ledger.cell(row=row, column=1).value
+                balance = float(ws_ledger.cell(row=row, column=2).value or 0)
+                if name:
+                    current_balances[self._normalize_name(str(name))] = balance
+
+            # replay transactions in chronological order
+            state: dict[str, float] = {}
+            became_pending_at: dict[str, datetime | None] = {}
+            for row in range(2, ws_history.max_row + 1):
+                ts_raw = ws_history.cell(row=row, column=1).value
+                name_raw = ws_history.cell(row=row, column=2).value
+                amount = float(ws_history.cell(row=row, column=3).value or 0)
+                if not name_raw:
+                    continue
+                name = self._normalize_name(str(name_raw))
+                prev = state.get(name, 0.0)
+                now = round(prev + amount, 2)
+                state[name] = now
+                if prev <= 0 < now:
+                    parsed_ts: datetime | None = None
+                    if isinstance(ts_raw, datetime):
+                        parsed_ts = ts_raw
+                    elif isinstance(ts_raw, str):
+                        try:
+                            parsed_ts = datetime.strptime(ts_raw, "%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            parsed_ts = None
+                    became_pending_at[name] = parsed_ts or datetime.now()
+                if now <= 0:
+                    became_pending_at[name] = None
+
+            now_dt = datetime.now()
+            rows: list[dict] = []
+            for name, balance in current_balances.items():
+                if balance <= 0:
+                    continue
+                started = became_pending_at.get(name)
+                days = 0
+                if started is not None:
+                    days = max(0, (now_dt - started).days)
+                rows.append({"name": name, "balance": round(balance, 2), "pending_days": days})
+            return rows
+        finally:
+            wb.close()

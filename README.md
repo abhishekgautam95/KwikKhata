@@ -1,7 +1,7 @@
 # KwikKhata
 
 Terminal-first Hinglish ledger assistant for local shopkeepers.  
-Built for fast udhaar/jama entry, balance lookup, and lightweight operations with AI-assisted parsing.
+Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent automation.
 
 ## Highlights
 - Excel-backed ledger store (`openpyxl`)
@@ -9,6 +9,10 @@ Built for fast udhaar/jama entry, balance lookup, and lightweight operations wit
 - AI providers: `ollama` (primary) + `gemini` (fallback)
 - Smart confirmation flow for ambiguous requests
 - Transaction safety commands: `/undo`, `/recent`, `/history`
+- FastAPI webhook server for WhatsApp Cloud API
+- Voice note ingestion pipeline (WhatsApp media -> Whisper STT -> ledger action)
+- Image/parcha scanner pipeline (Gemini Vision -> structured entries)
+- Daily reminder scheduler (`vasooli` suggestion engine)
 - Auto backup rotation for database file
 - Rotating logs for production-style traceability
 
@@ -30,7 +34,9 @@ KwikKhata uses a simple modular flow:
 1. `main.py` receives user input and routes command/intents.
 2. `ai_parser.py` resolves intents using rules first, then AI provider fallback.
 3. `database.py` persists balances and transaction history in Excel.
-4. Response layer returns concise Hinglish output with balance transitions.
+4. `app.py` exposes WhatsApp webhook endpoints and scheduler.
+5. `services/*` handles routing, STT, vision parsing, and reminders.
+6. Response layer returns concise Hinglish output with balance transitions.
 
 ## Project Structure
 ```text
@@ -40,6 +46,19 @@ KwikKhata/
 ├── database.py
 ├── requirements.txt
 ├── .env.example
+├── app.py
+├── config.py
+├── api/
+│   └── whatsapp_webhook.py
+├── services/
+│   ├── ledger_agent.py
+│   ├── message_router.py
+│   ├── reminder_engine.py
+│   ├── stt_service.py
+│   ├── vision_service.py
+│   └── whatsapp_client.py
+├── jobs/
+│   └── daily_reminder_job.py
 ├── scripts/
 │   ├── env_wizard.py
 │   └── migrate_excel.py
@@ -73,8 +92,14 @@ python3 scripts/env_wizard.py
 ```
 
 ## Run
+Terminal mode:
 ```bash
 python3 main.py
+```
+
+API mode (WhatsApp webhook):
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## Command Reference
@@ -107,6 +132,10 @@ All configuration lives in `.env`.
 - `WHATSAPP_ACCESS_TOKEN=...`
 - `WHATSAPP_PHONE_NUMBER_ID=...`
 - `WHATSAPP_BUSINESS_ACCOUNT_ID=...`
+- `WHATSAPP_GRAPH_VERSION=v21.0`
+- `WHATSAPP_API_BASE=https://graph.facebook.com`
+- `OWNER_WHATSAPP_NUMBER=+91...`
+- `CUSTOMER_PHONEBOOK={"Raju":"+91999...","Aditya":"+91888..."}`
 
 ### Reminder defaults (planned-ready)
 - `REMINDER_RUN_TIME=10:00`
@@ -137,7 +166,7 @@ python3 -m unittest discover -s tests -q
 ```
 
 ## Roadmap
-- WhatsApp webhook + voice note ingestion
-- Whisper-based speech-to-text pipeline
-- Proactive reminder engine (`vasooli`)
-- Bill/parcha image extraction workflow
+- Payment reminder template personalization per customer
+- Persistent queue/retry layer for webhook jobs
+- Multi-shop tenancy and role-based controls
+- Dashboard for overdue analytics and collection trend

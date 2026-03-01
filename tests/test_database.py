@@ -58,6 +58,15 @@ class TestKhataDB(unittest.TestCase):
         self.assertEqual(tx[0]["name"], "Raju")
         self.assertEqual(tx[0]["amount"], -20)
 
+    def test_pending_ledgers_with_age(self):
+        self.db.add_transaction("Raju", 100)
+        self.db.add_transaction("Mohan", -20)
+        rows = self.db.get_pending_ledgers_with_age()
+        names = {row["name"] for row in rows}
+        self.assertIn("Raju", names)
+        for row in rows:
+            self.assertGreaterEqual(row["pending_days"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
