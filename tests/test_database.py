@@ -35,6 +35,29 @@ class TestKhataDB(unittest.TestCase):
         self.assertEqual(len(tx), 2)
         self.assertEqual(tx[0]["name"], "Raju")
 
+    def test_undo_last_transaction(self):
+        self.db.add_transaction("Raju", 100)
+        self.db.add_transaction("Raju", -40)
+
+        undone = self.db.undo_last_transaction()
+        self.assertIsNotNone(undone)
+        self.assertEqual(undone["customer_name"], "Raju")
+        self.assertEqual(undone["amount"], -40.0)
+        self.assertEqual(self.db.get_balance("Raju"), 100)
+
+    def test_undo_when_empty(self):
+        self.assertIsNone(self.db.undo_last_transaction())
+
+    def test_customer_transactions(self):
+        self.db.add_transaction("Raju", 100)
+        self.db.add_transaction("Mohan", 70)
+        self.db.add_transaction("Raju", -20)
+
+        tx = self.db.get_customer_transactions("raju", limit=5)
+        self.assertEqual(len(tx), 2)
+        self.assertEqual(tx[0]["name"], "Raju")
+        self.assertEqual(tx[0]["amount"], -20)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,15 @@ GET_ALL_KEYWORDS = {
     "sab ka balance",
     "all pending",
     "sab ka udhaar",
+    "show me all",
+    "sab show",
+    "sab dikha",
+    "sab dikhao",
+    "kis kis",
+    "kin kin",
+    "all data",
+    "sab data",
+    "all records",
 }
 
 BALANCE_KEYWORDS = {
@@ -87,6 +96,26 @@ NAME_STOPWORDS = {
     "karlo",
 }
 
+NAME_NOISE_WORDS = {
+    "rupees",
+    "rupaye",
+    "rupay",
+    "rs",
+    "inr",
+    "data",
+    "record",
+    "records",
+    "entry",
+    "entries",
+    "pending",
+    "show",
+    "dikha",
+    "dikhao",
+    "check",
+    "please",
+    "pls",
+}
+
 
 @dataclass
 class ParseIntent:
@@ -122,7 +151,24 @@ def _title_case_name(name: str) -> str:
     return _normalize_spaces(name).title()
 
 
+def _clean_name_tokens(tokens: list[str]) -> list[str]:
+    return [
+        token
+        for token in tokens
+        if token and token not in NAME_STOPWORDS and token not in NAME_NOISE_WORDS
+    ]
+
+
 def _extract_name(text: str) -> str:
+    # Prefer tokens before the first amount: "Aditya 30 rupees namkeen" -> "Aditya"
+    amount_match = re.search(r"(?:₹\s*)?-?\d[\d,]*\s*(?:/-)?", text)
+    if amount_match:
+        before_amount = _normalize_spaces(text[: amount_match.start()].lower())
+        before_amount = re.sub(r"[^a-z\s]", " ", before_amount)
+        tokens = _clean_name_tokens(_normalize_spaces(before_amount).split())
+        if tokens:
+            return _title_case_name(" ".join(tokens[:3]))
+
     # Common patterns: "Raju ka ...", "Sharma ji ne ...", "Ravi ko ..."
     patterns = [
         r"^([a-zA-Z][a-zA-Z\s]{1,40}?)\s+(?:ka|ki|ko|ne|se)\b",
@@ -137,9 +183,9 @@ def _extract_name(text: str) -> str:
         match = re.search(pattern, cleaned)
         if match:
             raw = _normalize_spaces(match.group(1))
-            tokens = [t for t in raw.split() if t not in NAME_STOPWORDS]
+            tokens = _clean_name_tokens(raw.split())
             if tokens:
-                return _title_case_name(" ".join(tokens))
+                return _title_case_name(" ".join(tokens[:3]))
     return ""
 
 
@@ -147,12 +193,24 @@ def _contains_any(text: str, keywords: set[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
+def _looks_like_get_all_query(text: str) -> bool:
+    if _contains_any(text, GET_ALL_KEYWORDS):
+        return True
+
+    # Queries like: "kis kis pe kitna baki hai", "kin kin ka hisaab show me"
+    has_group_prompt = any(token in text for token in {"kis kis", "kin kin", "kiske", "kis pe", "kis par"})
+    has_amount_context = any(token in text for token in {"kitna", "kitne", "baki", "baaki", "udhaar", "hisaab"})
+    has_show_prompt = any(token in text for token in {"show", "dikha", "dikhao"})
+
+    return has_group_prompt and (has_amount_context or has_show_prompt)
+
+
 def _parse_intent_by_rules(user_text: str) -> ParseIntent | None:
     text = _normalize_spaces(user_text.lower())
     if not text:
         return None
 
-    if _contains_any(text, GET_ALL_KEYWORDS):
+    if _looks_like_get_all_query(text):
         return ParseIntent(customer_name="", action="get_all", amount=0)
 
     name = _extract_name(text)
@@ -161,6 +219,10 @@ def _parse_intent_by_rules(user_text: str) -> ParseIntent | None:
     if _contains_any(text, BALANCE_KEYWORDS):
         if not name:
             return None
+        return ParseIntent(customer_name=name, action="get_balance", amount=0)
+
+    # Short follow-up like: "sbi ka", "raju ki", "mohan ko"
+    if name and re.match(r"^[a-z\s]+\s+(?:ka|ki|ko|se)\s*$", text):
         return ParseIntent(customer_name=name, action="get_balance", amount=0)
 
     amount = _extract_amount(text)
@@ -336,6 +398,31 @@ def _parse_with_provider(provider: str, user_text: str) -> dict | None:
     raise RuntimeError("Unknown provider. Use 'ollama' or 'gemini'.")
 
 
+def _repair_llm_intent(user_text: str, result: dict | None) -> dict | None:
+    if result is None:
+        return None
+
+    text = _normalize_spaces(user_text.lower())
+    action = result.get("action")
+    customer_name = _title_case_name(result.get("customer_name", ""))
+
+    # LLM sometimes returns get_balance without name for "all data" style queries.
+    if action == "get_balance" and not customer_name:
+        if _looks_like_get_all_query(text):
+            return {"customer_name": "", "action": "get_all", "amount": 0}
+        return None
+
+    # Keep name tidy even when LLM returns noisy strings.
+    if action in {"add_transaction", "get_balance"}:
+        extracted_name = _extract_name(user_text)
+        if extracted_name:
+            result["customer_name"] = extracted_name
+        else:
+            result["customer_name"] = customer_name
+
+    return result
+
+
 def parse_shopkeeper_intent(user_text: str) -> dict | None:
     """Parse shopkeeper input into structured JSON-like dict."""
     try:
@@ -346,7 +433,8 @@ def parse_shopkeeper_intent(user_text: str) -> dict | None:
 
         # LLM parsing path for ambiguous messages.
         try:
-            return _parse_with_provider(AI_PROVIDER, user_text)
+            llm_result = _parse_with_provider(AI_PROVIDER, user_text)
+            return _repair_llm_intent(user_text, llm_result)
         except Exception as primary_error:
             if not ENABLE_FALLBACK:
                 raise primary_error
@@ -355,7 +443,8 @@ def parse_shopkeeper_intent(user_text: str) -> dict | None:
                 raise primary_error
 
             print(f"⚠️  {AI_PROVIDER.title()} unavailable. {FALLBACK_PROVIDER.title()} fallback try kar rahe hain...")
-            return _parse_with_provider(FALLBACK_PROVIDER, user_text)
+            llm_result = _parse_with_provider(FALLBACK_PROVIDER, user_text)
+            return _repair_llm_intent(user_text, llm_result)
 
     except json.JSONDecodeError:
         print("⚠️  AI ka response samajh nahi aaya (invalid JSON).")

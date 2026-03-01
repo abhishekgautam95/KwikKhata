@@ -22,6 +22,12 @@ cp .env.example .env
 
 Edit `.env` as needed.
 
+Fast setup for API keys:
+```bash
+python3 scripts/env_wizard.py
+```
+This interactive wizard updates `.env` and keeps existing values if you press Enter.
+
 ## Run
 ```bash
 python3 main.py
@@ -42,6 +48,16 @@ python3 main.py
 - `OLLAMA_MODEL=llama3.2:latest`
 - `OLLAMA_URL=http://127.0.0.1:11434/api/generate`
 - `GEMINI_API_KEY=...`
+
+## Future Integrations Config
+- `OPENAI_API_KEY=...` (voice/STT pipeline)
+- `WHATSAPP_VERIFY_TOKEN=...`
+- `WHATSAPP_ACCESS_TOKEN=...`
+- `WHATSAPP_PHONE_NUMBER_ID=...`
+- `WHATSAPP_BUSINESS_ACCOUNT_ID=...`
+- `REMINDER_RUN_TIME=10:00`
+- `REMINDER_MIN_DAYS=15`
+- `REMINDER_MIN_AMOUNT=500`
 
 ## Backup Config
 - `KWIKKHATA_ENABLE_BACKUP=true|false`

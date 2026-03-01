@@ -22,6 +22,30 @@ class TestMainCommands(unittest.TestCase):
             {"customer_name": "Raju", "action": "add_transaction", "amount": -300},
         )
 
+    def test_undo_command(self):
+        self.assertEqual(
+            parse_manual_command('/undo'),
+            {"customer_name": "", "action": "undo", "amount": 0},
+        )
+
+    def test_recent_command_default_limit(self):
+        self.assertEqual(
+            parse_manual_command('/recent'),
+            {"customer_name": "", "action": "recent", "amount": 0, "limit": 10},
+        )
+
+    def test_recent_command_custom_limit(self):
+        self.assertEqual(
+            parse_manual_command('/recent 5'),
+            {"customer_name": "", "action": "recent", "amount": 0, "limit": 5},
+        )
+
+    def test_history_command(self):
+        self.assertEqual(
+            parse_manual_command('/history raju 3'),
+            {"customer_name": "Raju", "action": "history", "amount": 0, "limit": 3},
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

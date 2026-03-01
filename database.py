@@ -190,3 +190,64 @@ class KhataDB:
             return rows
         finally:
             wb.close()
+
+    def get_customer_transactions(self, name: str, limit: int = 10) -> list[dict]:
+        """Return most recent transactions for a specific customer."""
+        normalized_name = self._normalize_name(name)
+        if not normalized_name:
+            return []
+
+        limit = max(1, int(limit))
+        wb = load_workbook(self.filepath)
+        try:
+            ws = wb[self.HISTORY_SHEET]
+            rows: list[dict] = []
+            for row in range(ws.max_row, 1, -1):
+                row_name = str(ws.cell(row=row, column=2).value or "").strip()
+                if self._normalize_name(row_name) != normalized_name:
+                    continue
+                rows.append(
+                    {
+                        "timestamp": ws.cell(row=row, column=1).value,
+                        "name": ws.cell(row=row, column=2).value,
+                        "amount": ws.cell(row=row, column=3).value,
+                        "new_balance": ws.cell(row=row, column=4).value,
+                    }
+                )
+                if len(rows) >= limit:
+                    break
+            return rows
+        finally:
+            wb.close()
+
+    def undo_last_transaction(self) -> dict | None:
+        """Revert most recent transaction entry and return undo summary."""
+        wb = load_workbook(self.filepath)
+        try:
+            ws = wb[self.LEDGER_SHEET]
+            ws_history = wb[self.HISTORY_SHEET]
+            if ws_history.max_row < 2:
+                return None
+
+            row = ws_history.max_row
+            name = str(ws_history.cell(row=row, column=2).value or "").strip()
+            amount = float(ws_history.cell(row=row, column=3).value or 0)
+            new_balance = float(ws_history.cell(row=row, column=4).value or 0)
+            previous_balance = round(new_balance - amount, 2)
+
+            customer_row = self._find_customer_row(ws, name)
+            if customer_row is not None:
+                if abs(previous_balance) < 1e-9:
+                    ws.delete_rows(customer_row, 1)
+                else:
+                    ws.cell(row=customer_row, column=2, value=previous_balance)
+
+            ws_history.delete_rows(row, 1)
+            wb.save(self.filepath)
+            return {
+                "customer_name": self._normalize_name(name),
+                "amount": round(amount, 2),
+                "new_balance": round(previous_balance, 2),
+            }
+        finally:
+            wb.close()
