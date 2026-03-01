@@ -19,3 +19,7 @@ venv/
 # Runtime artifacts
 logs/
 backups/
+
+.env
+__pycache__/
+*.pyc
