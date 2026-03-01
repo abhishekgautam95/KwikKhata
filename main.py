@@ -1,123 +1,194 @@
 """
 main.py — KwikKhata Main Controller
-=====================================
-Interactive terminal loop that connects the AI parser with the
-Excel-based ledger database. Speaks Hinglish with the shopkeeper.
+===================================
+Terminal-first controller for Phase 1/2 backend.
 """
 
-from database import KhataDB
+from __future__ import annotations
+
+import logging
+import os
+import re
+from logging.handlers import RotatingFileHandler
+
 from ai_parser import parse_shopkeeper_intent
+from database import KhataDB
 
 
-def print_banner():
-    """Print a friendly welcome banner."""
-    print("\n" + "=" * 50)
-    print("  📒  KwikKhata — Aapka Digital Udhaar Khata  📒")
-    print("=" * 50)
+def _configure_logging() -> logging.Logger:
+    os.makedirs("logs", exist_ok=True)
+    logger = logging.getLogger("kwikkhata")
+    logger.setLevel(logging.INFO)
+    if logger.handlers:
+        return logger
+
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        "%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = RotatingFileHandler(
+        "logs/kwikkhata.log",
+        maxBytes=1_000_000,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    return logger
+
+
+LOGGER = _configure_logging()
+
+
+def _fmt_money(value: float | int) -> str:
+    value = float(value)
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.2f}"
+
+
+def print_banner() -> None:
+    print("\n" + "=" * 56)
+    print("  KwikKhata - Aapka Digital Udhaar Khata")
+    print("=" * 56)
     print("  Hinglish mein boliye, hum samajh jayenge!")
-    print("  (Type 'exit' ya 'quit' to close)\n")
+    print("  Commands: /help, /all, /bal <name>, /add <name> <amt>, /pay <name> <amt>")
+    print("  Exit: exit / quit / bye / band karo\n")
+
+
+def print_help() -> None:
+    print("\nQuick Commands:")
+    print("  /help                  -> Help dikhaye")
+    print("  /all                   -> Sab pending ledgers")
+    print("  /bal Raju              -> Raju ka balance")
+    print("  /add Raju 500          -> Udhaar add (+500)")
+    print("  /pay Raju 200          -> Jama entry (-200)")
 
 
 def handle_add_transaction(db: KhataDB, data: dict) -> str:
-    """Handle an add_transaction intent and return a confirmation message."""
     name = data["customer_name"]
     amount = data["amount"]
 
-    new_balance = db.add_transaction(name, amount)
+    try:
+        new_balance = db.add_transaction(name, amount)
+    except ValueError as exc:
+        return f"❌ Entry error: {exc}"
 
     if amount >= 0:
         return (
-            f"✅ Done! {name} ka ₹{amount} udhaar likh diya hai.\n"
-            f"   Naya balance: ₹{new_balance}"
+            f"✅ Done! {name} ka ₹{_fmt_money(amount)} udhaar likh diya hai.\n"
+            f"   Naya balance: ₹{_fmt_money(new_balance)}"
         )
-    else:
-        return (
-            f"✅ Done! {name} se ₹{abs(amount)} jama ho gaye.\n"
-            f"   Naya balance: ₹{new_balance}"
-        )
+
+    return (
+        f"✅ Done! {name} se ₹{_fmt_money(abs(amount))} jama ho gaye.\n"
+        f"   Naya balance: ₹{_fmt_money(new_balance)}"
+    )
 
 
 def handle_get_balance(db: KhataDB, data: dict) -> str:
-    """Handle a get_balance intent and return the result message."""
     name = data["customer_name"]
     balance = db.get_balance(name)
-
-    if balance is not None:
-        return f"📊 {name} ka balance: ₹{balance}"
-    else:
-        return f"❌ '{name}' ka koi record nahi mila. Pehle koi entry karein."
+    if balance is None:
+        return f"❌ '{name}' ka koi record nahi mila."
+    return f"📊 {name} ka balance: ₹{_fmt_money(balance)}"
 
 
 def handle_get_all(db: KhataDB) -> str:
-    """Handle a get_all intent and return a summary of all ledgers."""
     ledgers = db.get_all_ledgers()
-
     if not ledgers:
-        return "📋 Kisi ka bhi udhaar pending nahi hai. Sab clear! 🎉"
+        return "📋 Kisi ka bhi udhaar pending nahi hai. Sab clear!"
 
-    lines = ["📋 Pending Udhaar List:"]
-    lines.append("-" * 30)
-    total = 0
+    lines = ["📋 Pending Udhaar List:", "-" * 34]
+    total = 0.0
     for entry in ledgers:
-        lines.append(f"  • {entry['name']}: ₹{entry['balance']}")
-        total += entry["balance"]
-    lines.append("-" * 30)
-    lines.append(f"  Total Pending: ₹{total}")
-
+        lines.append(f"  - {entry['name']}: ₹{_fmt_money(entry['balance'])}")
+        total += float(entry["balance"])
+    lines.extend(["-" * 34, f"  Total Pending: ₹{_fmt_money(total)}"])
     return "\n".join(lines)
 
 
-def main():
-    """Main interactive loop."""
-    print_banner()
+def parse_manual_command(user_input: str) -> dict | None:
+    text = user_input.strip()
 
-    # Initialize the database
+    if text == "/all":
+        return {"customer_name": "", "action": "get_all", "amount": 0}
+
+    if text.startswith("/bal "):
+        name = text[5:].strip().title()
+        return {"customer_name": name, "action": "get_balance", "amount": 0}
+
+    add_match = re.match(r"^/add\s+(.+?)\s+(-?\d+(?:\.\d+)?)$", text)
+    if add_match:
+        name = add_match.group(1).strip().title()
+        amount = int(float(add_match.group(2)))
+        return {"customer_name": name, "action": "add_transaction", "amount": abs(amount)}
+
+    pay_match = re.match(r"^/pay\s+(.+?)\s+(-?\d+(?:\.\d+)?)$", text)
+    if pay_match:
+        name = pay_match.group(1).strip().title()
+        amount = int(float(pay_match.group(2)))
+        return {"customer_name": name, "action": "add_transaction", "amount": -abs(amount)}
+
+    return None
+
+
+def main() -> None:
+    print_banner()
     db = KhataDB()
+    LOGGER.info("KwikKhata started")
 
     while True:
         try:
-            user_input = input("\n🗣️  KwikKhata: Boliye kya entry karni hai?\n> ").strip()
+            user_input = input("\nKwikKhata: Boliye kya entry karni hai?\n> ").strip()
         except (EOFError, KeyboardInterrupt):
+            LOGGER.info("Session ended by interrupt")
             print("\n\n👋 KwikKhata band ho raha hai. Phir milenge!")
             break
 
-        # Exit commands
-        if user_input.lower() in ("exit", "quit", "bye", "band karo"):
+        if user_input.lower() in {"exit", "quit", "bye", "band karo"}:
+            LOGGER.info("Session closed by user command")
             print("\n👋 KwikKhata band ho raha hai. Phir milenge!")
             break
 
         if not user_input:
-            print("⚠️  Kuch toh boliye! 😅")
+            print("⚠️  Kuch toh boliye!")
             continue
 
-        # Parse intent using AI
-        print("\n🤖 Samajh raha hoon...")
-        data = parse_shopkeeper_intent(user_input)
+        if user_input == "/help":
+            print_help()
+            continue
+
+        LOGGER.info("Input received: %s", user_input)
+        data = parse_manual_command(user_input)
+        if data is None:
+            print("\n🤖 Samajh raha hoon...")
+            data = parse_shopkeeper_intent(user_input)
 
         if data is None:
+            LOGGER.warning("Intent parsing failed for input: %s", user_input)
             print("❌ Maaf kijiye, samajh nahi aaya. Thoda aur detail mein boliye.")
             continue
 
-        # Route to the correct handler
         action = data.get("action")
+        LOGGER.info("Resolved action: %s | payload=%s", action, data)
 
         if action == "add_transaction":
             if not data.get("customer_name"):
-                print("❌ Customer ka naam nahi mila. Please naam ke saath boliye.")
+                print("❌ Customer ka naam missing hai.")
                 continue
             response = handle_add_transaction(db, data)
-
         elif action == "get_balance":
             if not data.get("customer_name"):
-                print("❌ Kiska balance chahiye? Customer ka naam boliye.")
+                print("❌ Kiska balance chahiye? Naam boliye.")
                 continue
             response = handle_get_balance(db, data)
-
         elif action == "get_all":
             response = handle_get_all(db)
-
         else:
-            response = "❌ Yeh action samajh nahi aaya. Please dubara try karein."
+            response = "❌ Unknown action."
+            LOGGER.warning("Unknown action payload: %s", data)
 
         print(f"\n{response}")
 
