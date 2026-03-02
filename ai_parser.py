@@ -17,6 +17,7 @@ import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -311,6 +312,7 @@ ENABLE_FALLBACK = os.getenv("ENABLE_FALLBACK", "true").strip().lower() in {
     "on",
 }
 PARSER_MODE = os.getenv("PARSER_MODE", "hybrid").strip().lower()  # hybrid|llm
+MAX_ALLOWED_AMOUNT = int(os.getenv("KWIKKHATA_MAX_ALLOWED_AMOUNT", "10000000"))
 
 
 def _get_gemini_client():
@@ -362,6 +364,61 @@ def _validate_intent(result: dict) -> dict | None:
         result["customer_name"] = _title_case_name(result["customer_name"])
 
     return result
+
+
+def _deterministic_amount_direction(text: str, amount: int) -> tuple[int, str]:
+    is_payment = _contains_any(text, PAYMENT_KEYWORDS)
+    is_credit = _contains_any(text, CREDIT_KEYWORDS)
+    if is_payment and not is_credit:
+        return -abs(amount), "payment keyword detected"
+    if is_credit and not is_payment:
+        return abs(amount), "credit keyword detected"
+    return amount, "direction unchanged"
+
+
+def _deterministic_guardrails(user_text: str, parsed: dict | None) -> tuple[dict | None, dict[str, Any]]:
+    if parsed is None:
+        return None, {"confidence": "low", "risk": "high", "reason": "parser returned empty intent"}
+
+    out = dict(parsed)
+    text = _normalize_spaces(user_text.lower())
+    action = str(out.get("action", "")).strip()
+    name = _title_case_name(str(out.get("customer_name", "")).strip())
+    amount = int(out.get("amount", 0) or 0)
+
+    if action == "add_transaction":
+        if not name:
+            return None, {"confidence": "low", "risk": "high", "reason": "missing customer name"}
+        if amount == 0:
+            return None, {"confidence": "low", "risk": "high", "reason": "amount missing"}
+        if abs(amount) > MAX_ALLOWED_AMOUNT:
+            return None, {"confidence": "low", "risk": "high", "reason": "amount above allowed safety limit"}
+        corrected_amount, direction_reason = _deterministic_amount_direction(text, amount)
+        out["amount"] = corrected_amount
+        has_txn_word = any(
+            word in text for word in {"udhaar", "udhar", "jama", "pay", "payment", "credit", "de diya", "de diye"}
+        )
+        if not has_txn_word:
+            return out, {
+                "confidence": "medium",
+                "risk": "high",
+                "reason": f"amount parsed but transaction intent words are weak; {direction_reason}",
+            }
+        return out, {"confidence": "high", "risk": "medium", "reason": direction_reason}
+
+    if action == "get_balance":
+        if not name:
+            return None, {"confidence": "low", "risk": "high", "reason": "missing customer name for balance lookup"}
+        out["customer_name"] = name
+        out["amount"] = 0
+        return out, {"confidence": "high", "risk": "low", "reason": "single customer balance intent"}
+
+    if action == "get_all":
+        out["customer_name"] = ""
+        out["amount"] = 0
+        return out, {"confidence": "high", "risk": "low", "reason": "group ledger query intent"}
+
+    return None, {"confidence": "low", "risk": "high", "reason": "unsupported action"}
 
 
 def _parse_with_gemini(user_text: str) -> dict | None:
@@ -451,18 +508,42 @@ def _repair_llm_intent(user_text: str, result: dict | None) -> dict | None:
     return result
 
 
-def parse_shopkeeper_intent(user_text: str) -> dict | None:
+def parse_shopkeeper_intent(user_text: str, include_meta: bool = False) -> dict | None:
     """Parse shopkeeper input into structured JSON-like dict."""
     try:
+        parser_source = "llm"
         if PARSER_MODE in {"hybrid", "rule", "rules"}:
             rule_result = _parse_intent_by_rules(user_text)
             if rule_result is not None:
-                return rule_result.as_dict()
+                parser_source = "rules"
+                guarded, meta = _deterministic_guardrails(user_text, rule_result.as_dict())
+                if guarded is None:
+                    return None
+                if include_meta:
+                    guarded["_explain"] = {
+                        "parser_source": parser_source,
+                        "confidence": meta["confidence"],
+                        "risk": meta["risk"],
+                        "reason": meta["reason"],
+                    }
+                return guarded
 
         # LLM parsing path for ambiguous messages.
         try:
             llm_result = _parse_with_provider(AI_PROVIDER, user_text)
-            return _repair_llm_intent(user_text, llm_result)
+            parser_source = AI_PROVIDER
+            repaired = _repair_llm_intent(user_text, llm_result)
+            guarded, meta = _deterministic_guardrails(user_text, repaired)
+            if guarded is None:
+                return None
+            if include_meta:
+                guarded["_explain"] = {
+                    "parser_source": parser_source,
+                    "confidence": meta["confidence"],
+                    "risk": meta["risk"],
+                    "reason": meta["reason"],
+                }
+            return guarded
         except Exception as primary_error:
             if not ENABLE_FALLBACK:
                 raise primary_error
@@ -472,7 +553,19 @@ def parse_shopkeeper_intent(user_text: str) -> dict | None:
 
             print(f"⚠️  {AI_PROVIDER.title()} unavailable. {FALLBACK_PROVIDER.title()} fallback try kar rahe hain...")
             llm_result = _parse_with_provider(FALLBACK_PROVIDER, user_text)
-            return _repair_llm_intent(user_text, llm_result)
+            parser_source = FALLBACK_PROVIDER
+            repaired = _repair_llm_intent(user_text, llm_result)
+            guarded, meta = _deterministic_guardrails(user_text, repaired)
+            if guarded is None:
+                return None
+            if include_meta:
+                guarded["_explain"] = {
+                    "parser_source": parser_source,
+                    "confidence": meta["confidence"],
+                    "risk": meta["risk"],
+                    "reason": meta["reason"],
+                }
+            return guarded
 
     except json.JSONDecodeError:
         print("⚠️  AI ka response samajh nahi aaya (invalid JSON).")

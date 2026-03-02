@@ -20,6 +20,19 @@ def _section(title: str, lines: list[str]) -> str:
     return "\n".join([f"✨ {title}", "─" * 48, *lines])
 
 
+def _explain_line(data: dict) -> str:
+    explain = data.get("_explain") or {}
+    source = str(explain.get("parser_source", "")).strip()
+    confidence = str(explain.get("confidence", "")).strip()
+    reason = str(explain.get("reason", "")).strip()
+    if not (source or confidence or reason):
+        return ""
+    parts = [f"source={source or 'n/a'}", f"confidence={confidence or 'n/a'}"]
+    if reason:
+        parts.append(f"reason={reason}")
+    return "🧠 " + " | ".join(parts)
+
+
 def _parse_manual_command(user_input: str) -> dict | None:
     text = user_input.strip()
     lower = text.lower()
@@ -127,15 +140,22 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
             return "❌ Customer ka naam missing hai."
         old_balance = db.get_balance(name) or 0
         new_balance = db.add_transaction(name, amount)
+        explain = _explain_line(data)
         if amount >= 0:
-            return (
+            lines = [
                 f"✅ Done Boss! {name} ka ₹{_fmt_money(amount)} udhaar add kar diya.\n"
-                f"Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}"
-            )
-        return (
+                f"Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}",
+            ]
+            if explain:
+                lines.append(explain)
+            return "\n".join(lines)
+        lines = [
             f"✅ Done Boss! {name} se ₹{_fmt_money(abs(amount))} jama mark kar diya.\n"
-            f"Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}"
-        )
+            f"Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}",
+        ]
+        if explain:
+            lines.append(explain)
+        return "\n".join(lines)
 
     if action == "get_balance":
         name = data.get("customer_name", "").strip()
@@ -291,8 +311,16 @@ def process_user_text(db: KhataDB, store: PendingIntentStore, user_id: str, text
         store.clear(user_id)
 
     data = _parse_manual_command(message)
+    parsed_by_manual = data is not None
     if data is None:
-        data = parse_shopkeeper_intent(message)
+        data = parse_shopkeeper_intent(message, include_meta=True)
+    elif "_explain" not in data:
+        data["_explain"] = {
+            "parser_source": "manual_command",
+            "confidence": "high",
+            "risk": "low",
+            "reason": "explicit command used",
+        }
 
     if data is None:
         return AgentResponse("❌ Samajh nahi aaya. Try: /add, /pay, /bal, /all")
@@ -300,13 +328,24 @@ def process_user_text(db: KhataDB, store: PendingIntentStore, user_id: str, text
     action = data.get("action")
     name = str(data.get("customer_name", "")).strip()
     amount = float(data.get("amount", 0))
+    explain = data.get("_explain") or {}
+    risk = str(explain.get("risk", "")).strip().lower()
     is_ambiguous_add = action == "add_transaction" and name and amount != 0 and " " in message and "/add" not in message
-    if is_ambiguous_add and not any(k in message.lower() for k in {"udhaar", "udhar", "jama", "pay", "payment"}):
+    needs_risky_confirmation = action in {"send_reminders", "cleanup_names", "merge_customer"}
+    if (is_ambiguous_add and not any(k in message.lower() for k in {"udhaar", "udhar", "jama", "pay", "payment"})) or (
+        action == "add_transaction" and risk == "high" and not parsed_by_manual
+    ):
         store.set(user_id, data)
         sign_text = "udhaar" if amount >= 0 else "jama"
         return AgentResponse(
             f"❓ Confirm kar dein: {name} ke naam ₹{_fmt_money(abs(amount))} {sign_text} entry karun? (yes/no)",
             needs_confirmation=True,
         )
+    if needs_risky_confirmation and not parsed_by_manual:
+        store.set(user_id, data)
+        return AgentResponse("❓ Ye sensitive action hai. Confirm karein? (yes/no)", needs_confirmation=True)
+    if needs_risky_confirmation and parsed_by_manual:
+        store.set(user_id, data)
+        return AgentResponse("❓ Sensitive command confirm karein? (yes/no)", needs_confirmation=True)
 
     return AgentResponse(_execute_intent(db, data))

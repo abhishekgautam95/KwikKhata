@@ -43,6 +43,7 @@ def _configure_logging() -> logging.Logger:
 LOGGER = _configure_logging()
 _ADD_PREFIXES = cycle(["✅ Done!", "✅ Ho gaya!", "✅ Kar diya!"])
 _PAY_PREFIXES = cycle(["✅ Done!", "✅ Entry ho gayi!", "✅ Jama note kar liya!"])
+_RISKY_ACTIONS = {"send_reminders", "cleanup_names", "merge_customer"}
 
 
 def _fmt_money(value: float | int) -> str:
@@ -54,6 +55,19 @@ def _fmt_money(value: float | int) -> str:
 
 def _section(title: str, lines: list[str]) -> str:
     return "\n".join([f"✨ {title}", "─" * 48, *lines])
+
+
+def _explain_line(data: dict) -> str:
+    explain = data.get("_explain") or {}
+    source = str(explain.get("parser_source", "")).strip()
+    confidence = str(explain.get("confidence", "")).strip()
+    reason = str(explain.get("reason", "")).strip()
+    if not (source or confidence or reason):
+        return ""
+    parts = [f"source={source or 'n/a'}", f"confidence={confidence or 'n/a'}"]
+    if reason:
+        parts.append(f"reason={reason}")
+    return "🧠 " + " | ".join(parts)
 
 
 def print_banner() -> None:
@@ -91,16 +105,23 @@ def handle_add_transaction(db: KhataDB, data: dict) -> str:
     except ValueError as exc:
         return f"❌ Entry error: {exc}\nTry: /add <name> <amount> ya /pay <name> <amount>"
 
+    explain = _explain_line(data)
     if amount >= 0:
-        return (
+        lines = [
             f"{next(_ADD_PREFIXES)} {name} ka ₹{_fmt_money(amount)} udhaar likh diya.\n"
-            f"   Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}"
-        )
+            f"   Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}",
+        ]
+        if explain:
+            lines.append(explain)
+        return "\n".join(lines)
 
-    return (
+    lines = [
         f"{next(_PAY_PREFIXES)} {name} se ₹{_fmt_money(abs(amount))} jama mark kar diya.\n"
-        f"   Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}"
-    )
+        f"   Balance: ₹{_fmt_money(old_balance)} -> ₹{_fmt_money(new_balance)}",
+    ]
+    if explain:
+        lines.append(explain)
+    return "\n".join(lines)
 
 
 def handle_get_balance(db: KhataDB, data: dict) -> str:
@@ -181,6 +202,14 @@ def _intent_summary(data: dict) -> str:
     action = data.get("action")
     if action == "get_all":
         return "sab pending ledgers dikhau"
+    if action == "send_reminders":
+        return "sab pending customers ko reminder bheju"
+    if action == "cleanup_names":
+        return "noisy customer names cleanup/merge karu"
+    if action == "merge_customer":
+        source = str(data.get("source", "")).strip() or "old"
+        target = str(data.get("target", "")).strip() or "new"
+        return f"{source} ko {target} me merge karu"
     if action == "get_balance":
         return f"{data.get('customer_name', '').strip()} ka balance bataun"
     amount = data.get("amount", 0)
@@ -411,11 +440,13 @@ def main() -> None:
             data = None
 
         LOGGER.info("Input received: %s", user_input)
+        parsed_by_manual = False
         if data is None:
             data = parse_manual_command(user_input)
+            parsed_by_manual = data is not None
         if data is None:
             print("\n🤖 Samajh raha hoon...")
-            data = parse_shopkeeper_intent(user_input)
+            data = parse_shopkeeper_intent(user_input, include_meta=True)
             if data is not None:
                 confidence, reason = _assess_intent_confidence(user_input, data)
                 if confidence == "low":
@@ -425,6 +456,13 @@ def main() -> None:
                     pending_intent = data
                     print(f"❓ Confirm kar dein: {_intent_summary(data)}? (yes/no)")
                     continue
+        elif parsed_by_manual and "_explain" not in data:
+            data["_explain"] = {
+                "parser_source": "manual_command",
+                "confidence": "high",
+                "risk": "low",
+                "reason": "explicit command used",
+            }
 
         if data is None:
             LOGGER.warning("Intent parsing failed for input: %s", user_input)
@@ -433,6 +471,10 @@ def main() -> None:
 
         action = data.get("action")
         LOGGER.info("Resolved action: %s | payload=%s", action, data)
+        if pending_intent is None and action in _RISKY_ACTIONS:
+            pending_intent = data
+            print(f"❓ Risky action confirm karein: {_intent_summary(data)}? (yes/no)")
+            continue
 
         if action == "add_transaction":
             if not data.get("customer_name"):
