@@ -23,6 +23,8 @@ class Settings:
     webhook_rate_limit_window_seconds: int = int(os.getenv("WEBHOOK_RATE_LIMIT_WINDOW_SECONDS", "60"))
     webhook_max_payload_kb: int = int(os.getenv("WEBHOOK_MAX_PAYLOAD_KB", "256"))
     pii_hash_salt: str = os.getenv("PII_HASH_SALT", "")
+    dashboard_token: str = os.getenv("DASHBOARD_TOKEN", "")
+    default_response_mode: str = os.getenv("DEFAULT_RESPONSE_MODE", "rich")
 
     whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
     whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")

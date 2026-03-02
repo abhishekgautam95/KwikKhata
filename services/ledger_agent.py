@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +19,17 @@ def _fmt_money(value: float | int) -> str:
 
 def _section(title: str, lines: list[str]) -> str:
     return "\n".join([f"✨ {title}", "─" * 48, *lines])
+
+
+def _normalize_mode(mode: str) -> str:
+    cleaned = str(mode).strip().lower()
+    return "compact" if cleaned == "compact" else "rich"
+
+
+def _render_block(title: str, lines: list[str], mode: str) -> str:
+    if _normalize_mode(mode) == "compact":
+        return "\n".join(lines)
+    return _section(title, lines)
 
 
 def _explain_line(data: dict) -> str:
@@ -70,6 +82,14 @@ def _parse_manual_command(user_input: str) -> dict | None:
         return {"customer_name": "", "action": "send_reminders", "amount": 0}
     if text == "/cleanup-names":
         return {"customer_name": "", "action": "cleanup_names", "amount": 0}
+    mode_match = re.match(r"^/mode\s+(compact|rich)\s*$", lower)
+    if mode_match:
+        return {
+            "customer_name": "",
+            "action": "set_response_mode",
+            "amount": 0,
+            "mode": _normalize_mode(mode_match.group(1)),
+        }
     merge_match = re.match(r"^/merge\s+(.+?)\s*->\s*(.+)$", text)
     if merge_match:
         source = merge_match.group(1).strip().title()
@@ -131,7 +151,7 @@ def _tx_lines(rows: list[dict], title: str) -> str:
     return _section(title, lines)
 
 
-def _execute_intent(db: KhataDB, data: dict) -> str:
+def _execute_intent(db: KhataDB, data: dict, mode: str = "rich") -> str:
     action = data.get("action")
     if action == "add_transaction":
         name = data.get("customer_name", "").strip()
@@ -164,7 +184,7 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
         bal = db.get_balance(name)
         if bal is None:
             return f"❌ '{name}' ka record nahi mila."
-        return _section("Customer Balance", [f"👤 {name}", f"💰 Outstanding: ₹{_fmt_money(bal)}"])
+        return _render_block("Customer Balance", [f"👤 {name}", f"💰 Outstanding: ₹{_fmt_money(bal)}"], mode)
 
     if action == "get_all":
         ledgers = db.get_all_ledgers()
@@ -177,7 +197,7 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
             lines.append(f"• {row['name']}: ₹{_fmt_money(row['balance'])}")
         lines.append("")
         lines.append(f"💼 Total Pending: ₹{_fmt_money(total)}")
-        return _section("Pending Udhaar Leaderboard", lines)
+        return _render_block("Pending Udhaar Leaderboard", lines, mode)
 
     if action == "undo":
         undone = db.undo_last_transaction()
@@ -197,7 +217,11 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
     if action == "recent":
         limit = int(data.get("limit", 10))
         rows = db.get_recent_transactions(limit=limit)
-        return _tx_lines(rows, f"Recent {limit} Transactions")
+        return _render_block(
+            f"Recent {limit} Transactions",
+            [line for line in _tx_lines(rows, f"Recent {limit} Transactions").splitlines() if not line.startswith("─") and not line.startswith("✨ ")],
+            mode,
+        )
 
     if action == "history":
         name = str(data.get("customer_name", "")).strip()
@@ -205,7 +229,11 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
             return "❌ Kiska history chahiye? Example: /history Raju 5"
         limit = int(data.get("limit", 10))
         rows = db.get_customer_transactions(name, limit=limit)
-        return _tx_lines(rows, f"{name} ki last {limit} entries")
+        return _render_block(
+            f"{name} ki last {limit} entries",
+            [line for line in _tx_lines(rows, f"{name} ki last {limit} entries").splitlines() if not line.startswith("─") and not line.startswith("✨ ")],
+            mode,
+        )
 
     if action == "send_reminders":
         ledgers = db.get_all_ledgers()
@@ -217,7 +245,7 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
             name = str(row.get("name", "")).strip()
             if not name:
                 continue
-            if send_customer_reminder(name):
+            if send_customer_reminder(name, db=db):
                 sent_names.append(name)
             else:
                 missing_names.append(name)
@@ -226,7 +254,7 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
         response = [f"✅ {len(sent_names)} customer ko reminder bhej diya: {', '.join(sent_names)}"]
         if missing_names:
             response.append(f"⚠️ Number missing/failed: {', '.join(missing_names)}")
-        return _section("Reminder Dispatch Report", response)
+        return _render_block("Reminder Dispatch Report", response, mode)
 
     if action == "cleanup_names":
         result = db.cleanup_noisy_customer_names()
@@ -238,7 +266,7 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
         lines = [f"✅ {updated} noisy customer names cleanup/merge kiye:"]
         for row in result.get("details", []):
             lines.append(f"• {row['source']} -> {row['target']} (bal: ₹{_fmt_money(row['new_balance'])})")
-        return _section("Name Cleanup Summary", lines)
+        return _render_block("Name Cleanup Summary", lines, mode)
 
     if action == "merge_customer":
         source = str(data.get("source", "")).strip()
@@ -248,19 +276,24 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
         result = db.merge_customers(source, target)
         if not result.get("ok"):
             return f"❌ Merge failed: {result.get('reason', 'unknown error')}"
-        return _section(
+        return _render_block(
             "Customer Merge Complete",
             [
                 f"✅ {result['source']} -> {result['target']}",
                 f"💰 Updated balance: ₹{_fmt_money(result['new_balance'])}",
             ],
+            mode,
         )
+
+    if action == "set_response_mode":
+        selected = _normalize_mode(data.get("mode", "rich"))
+        return f"✅ Response mode updated: {selected}"
 
     if action == "ack":
         return "👍 Great. Agla command boliye: /all, /bal Raju, /add Raju 500"
 
     if action == "smalltalk_help":
-        return _section(
+        return _render_block(
             "Main Ye Kaam Kar Sakta Hoon",
             [
                 "• /add Raju 500",
@@ -268,7 +301,9 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
                 "• /bal Raju",
                 "• /all, /recent, /history Raju",
                 "• /remind-all, /cleanup-names, /merge Old -> New",
+                "• /mode compact|rich",
             ],
+            mode,
         )
 
     return "❌ Unknown action."
@@ -294,17 +329,33 @@ class PendingIntentStore:
         self._store.pop(user_id, None)
 
 
+class ResponseModeStore:
+    def __init__(self) -> None:
+        self._default_mode = _normalize_mode(os.getenv("DEFAULT_RESPONSE_MODE", "rich"))
+        self._store: dict[str, str] = {}
+
+    def get(self, user_id: str) -> str:
+        return _normalize_mode(self._store.get(user_id, self._default_mode))
+
+    def set(self, user_id: str, mode: str) -> str:
+        selected = _normalize_mode(mode)
+        self._store[user_id] = selected
+        return selected
+
+
 def process_user_text(db: KhataDB, store: PendingIntentStore, user_id: str, text: str) -> AgentResponse:
     message = text.strip()
     if not message:
         return AgentResponse("⚠️ Kuch toh boliye.")
 
     pending = store.get(user_id)
+    mode_store = _MODE_STORE
+    response_mode = mode_store.get(user_id)
     if pending:
         normalized = message.lower()
         if normalized in {"y", "yes", "haan", "ha", "ok"}:
             store.clear(user_id)
-            return AgentResponse(_execute_intent(db, pending))
+            return AgentResponse(_execute_intent(db, pending, mode=response_mode))
         if normalized in {"n", "no", "nahi", "cancel"}:
             store.clear(user_id)
             return AgentResponse("👍 Thik hai, cancel kar diya.")
@@ -326,6 +377,12 @@ def process_user_text(db: KhataDB, store: PendingIntentStore, user_id: str, text
         return AgentResponse("❌ Samajh nahi aaya. Try: /add, /pay, /bal, /all")
 
     action = data.get("action")
+    if action == "set_response_mode":
+        selected = mode_store.set(user_id, str(data.get("mode", "rich")))
+        data["mode"] = selected
+        return AgentResponse(_execute_intent(db, data, mode=selected))
+
+    response_mode = mode_store.get(user_id)
     name = str(data.get("customer_name", "")).strip()
     amount = float(data.get("amount", 0))
     explain = data.get("_explain") or {}
@@ -348,4 +405,7 @@ def process_user_text(db: KhataDB, store: PendingIntentStore, user_id: str, text
         store.set(user_id, data)
         return AgentResponse("❓ Sensitive command confirm karein? (yes/no)", needs_confirmation=True)
 
-    return AgentResponse(_execute_intent(db, data))
+    return AgentResponse(_execute_intent(db, data, mode=response_mode))
+
+
+_MODE_STORE = ResponseModeStore()

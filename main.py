@@ -91,6 +91,7 @@ def print_help() -> None:
         "8) /remind-all            -> Pending customers ko reminder",
         "9) /cleanup-names         -> Noisy names auto clean/merge",
         "10) /merge Old -> New     -> Manual merge/rename",
+        "11) /mode compact|rich    -> Response style set kare",
     ]
     print("\n" + _section("Quick Command Deck", command_lines))
 
@@ -289,6 +290,14 @@ def parse_manual_command(user_input: str) -> dict | None:
         return {"customer_name": "", "action": "send_reminders", "amount": 0}
     if text == "/cleanup-names":
         return {"customer_name": "", "action": "cleanup_names", "amount": 0}
+    mode_match = re.match(r"^/mode\s+(compact|rich)\s*$", lower)
+    if mode_match:
+        return {
+            "customer_name": "",
+            "action": "set_response_mode",
+            "amount": 0,
+            "mode": mode_match.group(1).lower(),
+        }
 
     merge_match = re.match(r"^/merge\s+(.+?)\s*->\s*(.+)$", text)
     if merge_match:
@@ -354,7 +363,7 @@ def handle_send_reminders(db: KhataDB) -> str:
         name = str(row.get("name", "")).strip()
         if not name:
             continue
-        if send_customer_reminder(name):
+        if send_customer_reminder(name, db=db):
             sent_names.append(name)
         else:
             missing_names.append(name)
@@ -508,6 +517,9 @@ def main() -> None:
                 print("❌ Merge format: /merge Old Name -> New Name")
                 continue
             response = handle_merge_customer(db, source, target)
+        elif action == "set_response_mode":
+            selected = str(data.get("mode", "rich")).strip().lower()
+            response = f"✅ Response mode set: {selected}"
         elif action == "ack":
             response = "👍 Great. Agla command boliye: /all, /bal Raju, /add Raju 500"
         elif action == "smalltalk_help":

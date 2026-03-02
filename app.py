@@ -4,6 +4,7 @@ import logging
 
 from fastapi import FastAPI
 
+from api.dashboard import router as dashboard_router
 from api.whatsapp_webhook import router as whatsapp_router
 from config import settings
 from jobs.daily_reminder_job import run_daily_reminder_job
@@ -16,6 +17,7 @@ logging.basicConfig(
 
 app = FastAPI(title="KwikKhata Agent API", version="0.3.0")
 app.include_router(whatsapp_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")

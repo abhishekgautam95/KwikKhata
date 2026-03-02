@@ -17,6 +17,8 @@ Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent a
 - Backup restore utility (`scripts/restore_backup.py`)
 - Webhook abuse protection (rate-limit + payload guard)
 - Security env validator (`scripts/validate_env.py`)
+- Dashboard analytics API (pending, aging, risk, collection trend)
+- Owner response mode preference (`/mode compact|rich`)
 - Rotating logs for production-style traceability
 
 ## Table of Contents
@@ -107,6 +109,12 @@ API mode (WhatsApp webhook):
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+Dashboard summary API:
+```bash
+curl -s "http://127.0.0.1:8000/dashboard/summary?trend_days=14" \
+  -H "x-dashboard-token: $DASHBOARD_TOKEN"
+```
+
 ## Command Reference
 - `/help` -> show available commands
 - `/all` -> show all pending ledgers
@@ -116,6 +124,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 - `/undo` -> revert last transaction
 - `/recent [n]` -> latest `n` transactions (default `10`)
 - `/history <name> [n]` -> latest `n` transactions for one customer (default `10`)
+- `/mode compact|rich` -> response style preference for owner chat
 
 ## Configuration
 All configuration lives in `.env`.
@@ -142,10 +151,12 @@ All configuration lives in `.env`.
 - `WEBHOOK_RATE_LIMIT_PER_MINUTE=120`
 - `WEBHOOK_RATE_LIMIT_WINDOW_SECONDS=60`
 - `WEBHOOK_MAX_PAYLOAD_KB=256`
+- `DASHBOARD_TOKEN=...` (optional dashboard auth header: `x-dashboard-token`)
 - `OWNER_WHATSAPP_NUMBER=+91...`
 - `CUSTOMER_PHONEBOOK={"Raju":"+91999...","Aditya":"+91888..."}`
 - `CUSTOMER_PHONEBOOK_B64=...` (optional base64 encoded JSON phonebook)
 - `PII_HASH_SALT=...` (recommended 24+ chars)
+- `DEFAULT_RESPONSE_MODE=rich|compact`
 
 ### Reminder defaults (planned-ready)
 - `REMINDER_RUN_TIME=10:00`

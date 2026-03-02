@@ -18,16 +18,29 @@ class MessageRouter:
         self.db = db
         self.pending_store = PendingIntentStore()
         self.processed_ids: set[str] = set()
+        self.last_media_context: dict[str, dict] = {}
 
     def _handle_text(self, msg: IncomingMessage) -> str:
         text = msg.text.strip()
         lower = text.lower()
+        if any(token in lower for token in {"ye galat", "galat hai", "wrong", "sahi nahi"}):
+            ctx = self.last_media_context.get(msg.from_number)
+            if ctx:
+                ctype = ctx.get("type", "input")
+                return (
+                    f"✅ Samajh gaya. Last {ctype} parse ko ignore kar diya.\n"
+                    "Please correct format bhejein:\n"
+                    "• /add Name Amount\n"
+                    "• /pay Name Amount\n"
+                    "• ya fresh clear voice/image bhejein."
+                )
+            return "Aap correction bhej sakte hain: '/add Name Amount' ya '/pay Name Amount'."
 
         # Owner shortcut: "haan bhej de Raju"
         match = re.match(r"^(haan|ha|yes)\s+bhej\s+de\s+(.+)$", lower)
         if msg.from_number == settings.owner_whatsapp_number and match:
             customer_name = match.group(2).strip().title()
-            if send_customer_reminder(customer_name):
+            if send_customer_reminder(customer_name, db=self.db):
                 return f"✅ Reminder {customer_name} ko bhej diya."
             return f"❌ {customer_name} ka number phonebook me nahi mila."
 
@@ -42,7 +55,14 @@ class MessageRouter:
         if not transcript:
             return "❌ Audio samajh nahi paya. Please text ya clearer voice note bhejiye."
         response = process_user_text(self.db, self.pending_store, msg.from_number, transcript)
-        return f"🎙️ Transcript: {transcript}\n\n{response.text}"
+        self.last_media_context[msg.from_number] = {"type": "audio", "transcript": transcript}
+        return (
+            "🎙️ Voice note processed\n"
+            f"Transcript: {transcript}\n"
+            "────────────\n"
+            f"{response.text}\n\n"
+            "Tip: Agar parse galat ho to reply karein 'ye galat hai'."
+        )
 
     def _handle_image(self, msg: IncomingMessage) -> str:
         media_url = fetch_media_url(msg.media_id)
@@ -60,6 +80,7 @@ class MessageRouter:
             return f"⚠️ Parcha parse hua par entry clear nahi mili.\nNotes: {notes}"
 
         added = []
+        total_amount = 0.0
         for row in entries:
             name = str(row.get("customer_name", "")).strip().title()
             amount = float(row.get("amount", 0))
@@ -67,11 +88,20 @@ class MessageRouter:
                 continue
             old_balance = self.db.get_balance(name) or 0
             new_balance = self.db.add_transaction(name, amount)
+            total_amount += amount
             added.append(f"- {name}: ₹{int(old_balance)} -> ₹{int(new_balance)}")
 
         if not added:
             return "⚠️ Parsed entries valid nahi thi. Manual confirm required."
-        return "✅ Parcha processed.\n" + "\n".join(added)
+        self.last_media_context[msg.from_number] = {"type": "image", "entries": len(added)}
+        direction = "credited" if total_amount >= 0 else "collected"
+        return (
+            "✅ Parcha processed successfully\n"
+            f"Entries: {len(added)} | Net {direction}: ₹{int(abs(total_amount))}\n"
+            "────────────\n"
+            + "\n".join(added)
+            + "\n\nTip: Agar parse galat ho to reply karein 'ye galat hai'."
+        )
 
     def route(self, messages: Iterable[IncomingMessage]) -> list[dict]:
         replies: list[dict] = []
