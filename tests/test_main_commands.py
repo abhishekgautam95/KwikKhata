@@ -76,6 +76,12 @@ class TestMainCommands(unittest.TestCase):
             },
         )
 
+    def test_mode_command(self):
+        self.assertEqual(
+            parse_manual_command('/mode compact'),
+            {"customer_name": "", "action": "set_response_mode", "amount": 0, "mode": "compact"},
+        )
+
     def test_ack_text(self):
         self.assertEqual(
             parse_manual_command('ok good'),

@@ -44,6 +44,12 @@ class TestPhase3Intelligence(unittest.TestCase):
         self.assertTrue(response.needs_confirmation)
         self.assertIn("confirm", response.text.lower())
 
+    def test_set_mode_compact_command(self):
+        store = PendingIntentStore()
+        response = process_user_text(self.db, store, "u2", "/mode compact")
+        self.assertFalse(response.needs_confirmation)
+        self.assertIn("compact", response.text.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

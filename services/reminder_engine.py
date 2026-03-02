@@ -94,15 +94,48 @@ def send_owner_suggestion(owner_number: str, candidate: ReminderCandidate) -> No
     send_text_message(owner_number, message)
 
 
-def send_customer_reminder(customer_name: str) -> bool:
+def _pick_customer_profile(db: KhataDB | None, customer_name: str) -> tuple[float | None, int | None]:
+    if db is None:
+        return None, None
+    rows = db.get_pending_ledgers_with_age()
+    target = customer_name.strip().title()
+    for row in rows:
+        if str(row.get("name", "")).strip().title() == target:
+            return float(row.get("balance", 0)), int(row.get("pending_days", 0))
+    return None, None
+
+
+def _build_personalized_reminder(customer_name: str, balance: float | None, pending_days: int | None) -> str:
+    name = customer_name.strip().title()
+    if balance is None or pending_days is None:
+        return (
+            f"Namaste {name} ji, aapka KwikKhata balance pending hai. "
+            "Jab convenient ho payment clear kar dein. Dhanyavaad."
+        )
+
+    if pending_days >= 45 or balance >= 5000:
+        return (
+            f"Namaste {name} ji, ₹{int(balance)} pichle {pending_days} din se pending hai. "
+            "Request hai ki aaj hi partial ya full payment share kar dein. Dhanyavaad."
+        )
+    if pending_days >= 15 or balance >= 1500:
+        return (
+            f"Namaste {name} ji, aapka ₹{int(balance)} ka balance {pending_days} din se pending hai. "
+            "Kripya is week payment clear kar dein."
+        )
+    return (
+        f"Namaste {name} ji, friendly reminder: ₹{int(balance)} pending hai. "
+        "Jab convenient ho payment bhej dein. Shukriya."
+    )
+
+
+def send_customer_reminder(customer_name: str, db: KhataDB | None = None) -> bool:
     phonebook = _load_phonebook()
     to = phonebook.get(customer_name.title())
     if not to:
         return False
-    body = (
-        f"Namaste {customer_name} ji, aapka KwikKhata balance pending hai. "
-        "Jab convenient ho payment clear kar dein. Dhanyavaad."
-    )
+    balance, pending_days = _pick_customer_profile(db, customer_name)
+    body = _build_personalized_reminder(customer_name, balance=balance, pending_days=pending_days)
     result = send_text_message(to, body)
     return bool(result.get("ok"))
 

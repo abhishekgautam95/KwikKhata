@@ -60,6 +60,29 @@ class TestWhatsAppIntegration(unittest.TestCase):
             if os.path.exists(path):
                 os.remove(path)
 
+    @patch("services.message_router.send_text_message")
+    def test_router_correction_hint(self, mock_send):
+        mock_send.return_value = {"ok": True}
+        fd, path = tempfile.mkstemp(suffix=".xlsx")
+        os.close(fd)
+        os.remove(path)
+        try:
+            db = KhataDB(path)
+            router = MessageRouter(db)
+            router.last_media_context["919999999999"] = {"type": "image", "entries": 2}
+            msg = IncomingMessage(
+                message_id="m-2",
+                from_number="919999999999",
+                type="text",
+                text="ye galat hai",
+            )
+            replies = router.route([msg])
+            self.assertEqual(len(replies), 1)
+            self.assertIn("ignore", replies[0]["body"])
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()
