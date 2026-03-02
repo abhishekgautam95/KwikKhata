@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import base64
 from dataclasses import dataclass
 
 from config import settings
@@ -23,15 +24,38 @@ def _load_phonebook() -> dict[str, str]:
     {"Raju":"+91999...", "Aditya":"+91888..."}
     """
     raw = os.getenv("CUSTOMER_PHONEBOOK", "").strip()
+    encoded = os.getenv("CUSTOMER_PHONEBOOK_B64", "").strip()
+    if encoded and not raw:
+        try:
+            raw = base64.b64decode(encoded.encode("utf-8")).decode("utf-8")
+        except Exception:
+            raw = ""
     if not raw:
         return {}
     try:
         payload = json.loads(raw)
         if isinstance(payload, dict):
-            return {str(k).strip().title(): str(v).strip() for k, v in payload.items()}
+            normalized: dict[str, str] = {}
+            for k, v in payload.items():
+                name = str(k).strip().title()
+                number = _sanitize_phone_number(str(v))
+                if name and number:
+                    normalized[name] = number
+            return normalized
     except Exception:
         return {}
     return {}
+
+
+def _sanitize_phone_number(value: str) -> str:
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    plus = raw.startswith("+")
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if len(digits) < 10 or len(digits) > 15:
+        return ""
+    return f"+{digits}" if plus else digits
 
 
 def build_candidates(

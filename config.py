@@ -19,6 +19,10 @@ class Settings:
     app_port: int = int(os.getenv("APP_PORT", "8000"))
     data_backend: str = os.getenv("DATA_BACKEND", "excel")
     database_url: str = os.getenv("KWIKKHATA_DATABASE_URL", os.getenv("DATABASE_URL", ""))
+    webhook_rate_limit_per_minute: int = int(os.getenv("WEBHOOK_RATE_LIMIT_PER_MINUTE", "120"))
+    webhook_rate_limit_window_seconds: int = int(os.getenv("WEBHOOK_RATE_LIMIT_WINDOW_SECONDS", "60"))
+    webhook_max_payload_kb: int = int(os.getenv("WEBHOOK_MAX_PAYLOAD_KB", "256"))
+    pii_hash_salt: str = os.getenv("PII_HASH_SALT", "")
 
     whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
     whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")

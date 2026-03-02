@@ -14,6 +14,9 @@ Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent a
 - Image/parcha scanner pipeline (Gemini Vision -> structured entries)
 - Daily reminder scheduler (`vasooli` suggestion engine)
 - Auto backup rotation for database file
+- Backup restore utility (`scripts/restore_backup.py`)
+- Webhook abuse protection (rate-limit + payload guard)
+- Security env validator (`scripts/validate_env.py`)
 - Rotating logs for production-style traceability
 
 ## Table of Contents
@@ -136,8 +139,13 @@ All configuration lives in `.env`.
 - `WHATSAPP_BUSINESS_ACCOUNT_ID=...`
 - `WHATSAPP_GRAPH_VERSION=v21.0`
 - `WHATSAPP_API_BASE=https://graph.facebook.com`
+- `WEBHOOK_RATE_LIMIT_PER_MINUTE=120`
+- `WEBHOOK_RATE_LIMIT_WINDOW_SECONDS=60`
+- `WEBHOOK_MAX_PAYLOAD_KB=256`
 - `OWNER_WHATSAPP_NUMBER=+91...`
 - `CUSTOMER_PHONEBOOK={"Raju":"+91999...","Aditya":"+91888..."}`
+- `CUSTOMER_PHONEBOOK_B64=...` (optional base64 encoded JSON phonebook)
+- `PII_HASH_SALT=...` (recommended 24+ chars)
 
 ### Reminder defaults (planned-ready)
 - `REMINDER_RUN_TIME=10:00`
@@ -165,6 +173,17 @@ All configuration lives in `.env`.
 For upgrading old ledger files:
 ```bash
 python3 scripts/migrate_excel.py --file kwik_khata_db.xlsx
+```
+
+## Security & Ops Utilities
+Validate environment before prod deploy:
+```bash
+python3 scripts/validate_env.py
+```
+
+Restore DB from latest backup:
+```bash
+python3 scripts/restore_backup.py --db kwik_khata_db.xlsx --backup-dir backups
 ```
 
 ## Testing

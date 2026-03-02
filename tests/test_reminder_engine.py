@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from database import KhataDB
-from services.reminder_engine import build_candidates
+from services.reminder_engine import _sanitize_phone_number, build_candidates
 
 
 class TestReminderEngine(unittest.TestCase):
@@ -24,6 +24,10 @@ class TestReminderEngine(unittest.TestCase):
         self.db.add_transaction("Raju", 500)
         candidates = build_candidates(self.db, min_days=0, min_amount=1)
         self.assertTrue(any(c.name == "Raju" for c in candidates))
+
+    def test_sanitize_phone(self):
+        self.assertEqual(_sanitize_phone_number("+91 99999-88888"), "+919999988888")
+        self.assertEqual(_sanitize_phone_number("123"), "")
 
 
 if __name__ == "__main__":
