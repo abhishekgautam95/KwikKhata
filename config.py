@@ -17,6 +17,8 @@ class Settings:
     app_env: str = os.getenv("APP_ENV", "dev")
     app_host: str = os.getenv("APP_HOST", "0.0.0.0")
     app_port: int = int(os.getenv("APP_PORT", "8000"))
+    data_backend: str = os.getenv("DATA_BACKEND", "excel")
+    database_url: str = os.getenv("KWIKKHATA_DATABASE_URL", os.getenv("DATABASE_URL", ""))
 
     whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
     whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")

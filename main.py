@@ -13,7 +13,8 @@ from itertools import cycle
 from logging.handlers import RotatingFileHandler
 
 from ai_parser import parse_shopkeeper_intent
-from database import KhataDB
+from database import KhataDB, create_db
+from services.reminder_engine import send_customer_reminder
 
 
 def _configure_logging() -> logging.Logger:
@@ -51,25 +52,33 @@ def _fmt_money(value: float | int) -> str:
     return f"{value:.2f}"
 
 
+def _section(title: str, lines: list[str]) -> str:
+    return "\n".join([f"✨ {title}", "─" * 48, *lines])
+
+
 def print_banner() -> None:
-    print("\n" + "=" * 56)
-    print("  KwikKhata - Aapka Digital Udhaar Khata")
-    print("=" * 56)
-    print("  Hinglish mein boliye, hum samajh jayenge!")
-    print("  Commands: /help, /all, /bal <name>, /add <name> <amt>, /pay <name> <amt>, /undo, /recent, /history <name>")
-    print("  Exit: exit / quit / bye / band karo\n")
+    print("\n" + "═" * 58)
+    print("   KWIKKHATA  •  Digital Udhaar Command Center")
+    print("═" * 58)
+    print("   Hinglish mein bolo, entry lightning speed mein hogi.")
+    print("   Starter: /help")
+    print("   Exit: exit / quit / bye / band karo\n")
 
 
 def print_help() -> None:
-    print("\nQuick Commands:")
-    print("  /help                  -> Help dikhaye")
-    print("  /all                   -> Sab pending ledgers")
-    print("  /bal Raju              -> Raju ka balance")
-    print("  /add Raju 500          -> Udhaar add (+500)")
-    print("  /pay Raju 200          -> Jama entry (-200)")
-    print("  /undo                  -> Last transaction undo")
-    print("  /recent [n]            -> Latest n transactions (default 10)")
-    print("  /history Raju [n]      -> Raju ki recent entries (default 10)")
+    command_lines = [
+        "1) /add Raju 500          -> Udhaar add (+500)",
+        "2) /pay Raju 200          -> Jama entry (-200)",
+        "3) /bal Raju              -> Single customer balance",
+        "4) /all                   -> Sab pending ledgers",
+        "5) /recent [n]            -> Latest n transactions (default 10)",
+        "6) /history Raju [n]      -> Customer-wise history",
+        "7) /undo                  -> Last transaction revert",
+        "8) /remind-all            -> Pending customers ko reminder",
+        "9) /cleanup-names         -> Noisy names auto clean/merge",
+        "10) /merge Old -> New     -> Manual merge/rename",
+    ]
+    print("\n" + _section("Quick Command Deck", command_lines))
 
 
 def handle_add_transaction(db: KhataDB, data: dict) -> str:
@@ -99,7 +108,7 @@ def handle_get_balance(db: KhataDB, data: dict) -> str:
     balance = db.get_balance(name)
     if balance is None:
         return f"❌ '{name}' ka record nahi mila. Try: /all ya /add {name} 100"
-    return f"📊 {name} ka balance: ₹{_fmt_money(balance)}"
+    return _section("Customer Balance", [f"👤 {name}", f"💰 Outstanding: ₹{_fmt_money(balance)}"])
 
 
 def handle_get_all(db: KhataDB) -> str:
@@ -107,13 +116,13 @@ def handle_get_all(db: KhataDB) -> str:
     if not ledgers:
         return "📋 Kisi ka bhi udhaar pending nahi hai. Sab clear!"
 
-    lines = ["📋 Pending Udhaar List:", "-" * 34]
+    lines = []
     total = 0.0
     for entry in ledgers:
-        lines.append(f"  - {entry['name']}: ₹{_fmt_money(entry['balance'])}")
+        lines.append(f"• {entry['name']}: ₹{_fmt_money(entry['balance'])}")
         total += float(entry["balance"])
-    lines.extend(["-" * 34, f"  Total Pending: ₹{_fmt_money(total)}"])
-    return "\n".join(lines)
+    lines.extend(["", f"💼 Total Pending: ₹{_fmt_money(total)}"])
+    return _section("Pending Udhaar Leaderboard", lines)
 
 
 def handle_undo(db: KhataDB) -> str:
@@ -139,17 +148,15 @@ def _format_tx_lines(tx_rows: list[dict], title: str) -> str:
     if not tx_rows:
         return f"📭 {title}: koi entries nahi mili."
 
-    lines = [f"🧾 {title}", "-" * 46]
+    lines = []
     for row in tx_rows:
         ts = row.get("timestamp") or "-"
         name = row.get("name") or "-"
         amount = float(row.get("amount") or 0)
         new_balance = float(row.get("new_balance") or 0)
         sign = "+" if amount >= 0 else "-"
-        lines.append(
-            f"  - {ts} | {name} | {sign}₹{_fmt_money(abs(amount))} | bal ₹{_fmt_money(new_balance)}"
-        )
-    return "\n".join(lines)
+        lines.append(f"• {ts} | {name} | {sign}₹{_fmt_money(abs(amount))} | bal ₹{_fmt_money(new_balance)}")
+    return _section(title, lines)
 
 
 def handle_recent(db: KhataDB, limit: int) -> str:
@@ -218,6 +225,59 @@ def _assess_intent_confidence(user_input: str, data: dict) -> tuple[str, str | N
 
 def parse_manual_command(user_input: str) -> dict | None:
     text = user_input.strip()
+    lower = text.lower()
+    compact = re.sub(r"\s+", " ", lower).strip()
+
+    if compact in {
+        "ok",
+        "okay",
+        "ok good",
+        "good",
+        "great",
+        "nice",
+        "thik",
+        "theek",
+        "haan",
+        "yes",
+        "thanks",
+        "thank you",
+        "done",
+    }:
+        return {"customer_name": "", "action": "ack", "amount": 0}
+
+    if (
+        "kese ho" in compact
+        or "kaise ho" in compact
+        or "how are you" in compact
+        or "kya kya" in compact
+        or "kya kr sakte" in compact
+        or "kya kar sakte" in compact
+        or "what can you do" in compact
+    ):
+        return {"customer_name": "", "action": "smalltalk_help", "amount": 0}
+
+    if text == "/remind-all":
+        return {"customer_name": "", "action": "send_reminders", "amount": 0}
+    if text == "/cleanup-names":
+        return {"customer_name": "", "action": "cleanup_names", "amount": 0}
+
+    merge_match = re.match(r"^/merge\s+(.+?)\s*->\s*(.+)$", text)
+    if merge_match:
+        source = merge_match.group(1).strip().title()
+        target = merge_match.group(2).strip().title()
+        return {"customer_name": "", "action": "merge_customer", "amount": 0, "source": source, "target": target}
+
+    has_message_word = any(word in lower for word in {"message", "msg", "reminder", "bhej", "yaad"})
+    has_group_word = any(
+        phrase in lower
+        for phrase in {"jis jis", "jinko", "jin ko", "jinpe", "jin pr", "jin par", "sabko", "sab ko", "all"}
+    )
+    has_due_word = any(
+        phrase in lower
+        for phrase in {"paisa", "paise", "udhaar", "udhar", "pending", "dene", "baki", "baaki", "de de", "vasooli"}
+    )
+    if has_message_word and has_group_word and has_due_word:
+        return {"customer_name": "", "action": "send_reminders", "amount": 0}
 
     if text == "/all":
         return {"customer_name": "", "action": "get_all", "amount": 0}
@@ -254,9 +314,62 @@ def parse_manual_command(user_input: str) -> dict | None:
     return None
 
 
+def handle_send_reminders(db: KhataDB) -> str:
+    ledgers = db.get_all_ledgers()
+    if not ledgers:
+        return "📋 Kisi ka bhi udhaar pending nahi hai, reminder bhejne ki zarurat nahi."
+
+    sent_names: list[str] = []
+    missing_names: list[str] = []
+    for row in ledgers:
+        name = str(row.get("name", "")).strip()
+        if not name:
+            continue
+        if send_customer_reminder(name):
+            sent_names.append(name)
+        else:
+            missing_names.append(name)
+
+    if not sent_names:
+        return "❌ Reminder nahi bhej paaya. CUSTOMER_PHONEBOOK me customer numbers set karein."
+
+    summary = [f"✅ {len(sent_names)} customer ko reminder bhej diya: {', '.join(sent_names)}"]
+    if missing_names:
+        summary.append(f"⚠️ Number missing/failed: {', '.join(missing_names)}")
+    return _section("Reminder Dispatch Report", summary)
+
+
+def handle_cleanup_names(db: KhataDB) -> str:
+    result = db.cleanup_noisy_customer_names()
+    if not result.get("ok"):
+        return "❌ Name cleanup failed."
+    updated = int(result.get("updated", 0))
+    if updated == 0:
+        return "ℹ️ Koi noisy customer name cleanup ke liye nahi mila."
+
+    lines = [f"✅ {updated} noisy customer names cleanup/merge kiye:"]
+    for row in result.get("details", []):
+        lines.append(f"• {row['source']} -> {row['target']} (bal: ₹{_fmt_money(row['new_balance'])})")
+    return _section("Name Cleanup Summary", lines)
+
+
+def handle_merge_customer(db: KhataDB, source: str, target: str) -> str:
+    result = db.merge_customers(source, target)
+    if not result.get("ok"):
+        reason = result.get("reason", "unknown error")
+        return f"❌ Merge failed: {reason}"
+    return _section(
+        "Customer Merge Complete",
+        [
+            f"✅ {result['source']} -> {result['target']}",
+            f"💰 Updated balance: ₹{_fmt_money(result['new_balance'])}",
+        ],
+    )
+
+
 def main() -> None:
     print_banner()
-    db = KhataDB()
+    db = create_db()
     LOGGER.info("KwikKhata started")
     pending_intent: dict | None = None
 
@@ -342,6 +455,30 @@ def main() -> None:
                 print("❌ Kiska history chahiye? Example: /history Raju")
                 continue
             response = handle_history(db, str(data["customer_name"]), int(data.get("limit", 10)))
+        elif action == "send_reminders":
+            response = handle_send_reminders(db)
+        elif action == "cleanup_names":
+            response = handle_cleanup_names(db)
+        elif action == "merge_customer":
+            source = str(data.get("source", "")).strip()
+            target = str(data.get("target", "")).strip()
+            if not source or not target:
+                print("❌ Merge format: /merge Old Name -> New Name")
+                continue
+            response = handle_merge_customer(db, source, target)
+        elif action == "ack":
+            response = "👍 Great. Agla command boliye: /all, /bal Raju, /add Raju 500"
+        elif action == "smalltalk_help":
+            response = _section(
+                "Main Ye Kaam Kar Sakta Hoon",
+                [
+                    "• /add Raju 500",
+                    "• /pay Raju 200",
+                    "• /bal Raju",
+                    "• /all, /recent, /history Raju",
+                    "• /remind-all, /cleanup-names, /merge Old -> New",
+                ],
+            )
         else:
             response = "❌ Unknown action."
             LOGGER.warning("Unknown action payload: %s", data)

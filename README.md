@@ -4,7 +4,7 @@ Terminal-first Hinglish ledger assistant for local shopkeepers.
 Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent automation.
 
 ## Highlights
-- Excel-backed ledger store (`openpyxl`)
+- Pluggable ledger backends: Excel (`openpyxl`) + PostgreSQL (`psycopg`)
 - Hybrid intent parser (rule-based + LLM)
 - AI providers: `ollama` (primary) + `gemini` (fallback)
 - Smart confirmation flow for ambiguous requests
@@ -74,6 +74,8 @@ KwikKhata/
 ## Requirements
 - Python 3.10+
 - `pip`
+- Optional for PostgreSQL backend:
+  - PostgreSQL 14+
 - Optional for local AI:
   - Ollama running on `127.0.0.1:11434`
 
@@ -147,6 +149,11 @@ All configuration lives in `.env`.
 - `KWIKKHATA_ENABLE_BACKUP=true|false`
 - `KWIKKHATA_BACKUP_DIR=backups`
 - `KWIKKHATA_BACKUP_KEEP=20`
+
+### Data backend
+- `DATA_BACKEND=excel|postgres`
+- `KWIKKHATA_DATABASE_URL=postgresql://user:pass@host:5432/dbname` (required when backend is `postgres`)
+- `KWIKKHATA_SHOP_NAME=Default Shop`
 
 ## Data & Backup
 - Primary DB file: `kwik_khata_db.xlsx`

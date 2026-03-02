@@ -6,6 +6,7 @@ from typing import Any
 
 from ai_parser import parse_shopkeeper_intent
 from database import KhataDB
+from services.reminder_engine import send_customer_reminder
 
 
 def _fmt_money(value: float | int) -> str:
@@ -15,8 +16,64 @@ def _fmt_money(value: float | int) -> str:
     return f"{value:.2f}"
 
 
+def _section(title: str, lines: list[str]) -> str:
+    return "\n".join([f"✨ {title}", "─" * 48, *lines])
+
+
 def _parse_manual_command(user_input: str) -> dict | None:
     text = user_input.strip()
+    lower = text.lower()
+    compact = re.sub(r"\s+", " ", lower).strip()
+
+    if compact in {
+        "ok",
+        "okay",
+        "ok good",
+        "good",
+        "great",
+        "nice",
+        "thik",
+        "theek",
+        "haan",
+        "yes",
+        "thanks",
+        "thank you",
+        "done",
+    }:
+        return {"customer_name": "", "action": "ack", "amount": 0}
+
+    if (
+        "kese ho" in compact
+        or "kaise ho" in compact
+        or "how are you" in compact
+        or "kya kya" in compact
+        or "kya kr sakte" in compact
+        or "kya kar sakte" in compact
+        or "what can you do" in compact
+    ):
+        return {"customer_name": "", "action": "smalltalk_help", "amount": 0}
+
+    if text == "/remind-all":
+        return {"customer_name": "", "action": "send_reminders", "amount": 0}
+    if text == "/cleanup-names":
+        return {"customer_name": "", "action": "cleanup_names", "amount": 0}
+    merge_match = re.match(r"^/merge\s+(.+?)\s*->\s*(.+)$", text)
+    if merge_match:
+        source = merge_match.group(1).strip().title()
+        target = merge_match.group(2).strip().title()
+        return {"customer_name": "", "action": "merge_customer", "amount": 0, "source": source, "target": target}
+
+    has_message_word = any(word in lower for word in {"message", "msg", "reminder", "bhej", "yaad"})
+    has_group_word = any(
+        phrase in lower
+        for phrase in {"jis jis", "jinko", "jin ko", "jinpe", "jin pr", "jin par", "sabko", "sab ko", "all"}
+    )
+    has_due_word = any(
+        phrase in lower
+        for phrase in {"paisa", "paise", "udhaar", "udhar", "pending", "dene", "baki", "baaki", "de de", "vasooli"}
+    )
+    if has_message_word and has_group_word and has_due_word:
+        return {"customer_name": "", "action": "send_reminders", "amount": 0}
 
     if text == "/all":
         return {"customer_name": "", "action": "get_all", "amount": 0}
@@ -50,15 +107,15 @@ def _parse_manual_command(user_input: str) -> dict | None:
 def _tx_lines(rows: list[dict], title: str) -> str:
     if not rows:
         return f"📭 {title}: koi entries nahi mili."
-    lines = [f"🧾 {title}", "-" * 46]
+    lines = []
     for row in rows:
         ts = row.get("timestamp") or "-"
         name = row.get("name") or "-"
         amount = float(row.get("amount") or 0)
         new_balance = float(row.get("new_balance") or 0)
         sign = "+" if amount >= 0 else "-"
-        lines.append(f"  - {ts} | {name} | {sign}₹{_fmt_money(abs(amount))} | bal ₹{_fmt_money(new_balance)}")
-    return "\n".join(lines)
+        lines.append(f"• {ts} | {name} | {sign}₹{_fmt_money(abs(amount))} | bal ₹{_fmt_money(new_balance)}")
+    return _section(title, lines)
 
 
 def _execute_intent(db: KhataDB, data: dict) -> str:
@@ -87,20 +144,20 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
         bal = db.get_balance(name)
         if bal is None:
             return f"❌ '{name}' ka record nahi mila."
-        return f"📊 {name} ka balance: ₹{_fmt_money(bal)}"
+        return _section("Customer Balance", [f"👤 {name}", f"💰 Outstanding: ₹{_fmt_money(bal)}"])
 
     if action == "get_all":
         ledgers = db.get_all_ledgers()
         if not ledgers:
             return "📋 Kisi ka bhi udhaar pending nahi hai. Sab clear!"
         total = 0.0
-        lines = ["📋 Pending Udhaar List:", "-" * 34]
+        lines: list[str] = []
         for row in ledgers:
             total += float(row["balance"])
-            lines.append(f"  - {row['name']}: ₹{_fmt_money(row['balance'])}")
-        lines.append("-" * 34)
-        lines.append(f"  Total Pending: ₹{_fmt_money(total)}")
-        return "\n".join(lines)
+            lines.append(f"• {row['name']}: ₹{_fmt_money(row['balance'])}")
+        lines.append("")
+        lines.append(f"💼 Total Pending: ₹{_fmt_money(total)}")
+        return _section("Pending Udhaar Leaderboard", lines)
 
     if action == "undo":
         undone = db.undo_last_transaction()
@@ -129,6 +186,70 @@ def _execute_intent(db: KhataDB, data: dict) -> str:
         limit = int(data.get("limit", 10))
         rows = db.get_customer_transactions(name, limit=limit)
         return _tx_lines(rows, f"{name} ki last {limit} entries")
+
+    if action == "send_reminders":
+        ledgers = db.get_all_ledgers()
+        if not ledgers:
+            return "📋 Kisi ka bhi udhaar pending nahi hai, reminder bhejne ki zarurat nahi."
+        sent_names: list[str] = []
+        missing_names: list[str] = []
+        for row in ledgers:
+            name = str(row.get("name", "")).strip()
+            if not name:
+                continue
+            if send_customer_reminder(name):
+                sent_names.append(name)
+            else:
+                missing_names.append(name)
+        if not sent_names:
+            return "❌ Reminder nahi bhej paaya. CUSTOMER_PHONEBOOK me customer numbers set karein."
+        response = [f"✅ {len(sent_names)} customer ko reminder bhej diya: {', '.join(sent_names)}"]
+        if missing_names:
+            response.append(f"⚠️ Number missing/failed: {', '.join(missing_names)}")
+        return _section("Reminder Dispatch Report", response)
+
+    if action == "cleanup_names":
+        result = db.cleanup_noisy_customer_names()
+        if not result.get("ok"):
+            return "❌ Name cleanup failed."
+        updated = int(result.get("updated", 0))
+        if updated == 0:
+            return "ℹ️ Koi noisy customer name cleanup ke liye nahi mila."
+        lines = [f"✅ {updated} noisy customer names cleanup/merge kiye:"]
+        for row in result.get("details", []):
+            lines.append(f"• {row['source']} -> {row['target']} (bal: ₹{_fmt_money(row['new_balance'])})")
+        return _section("Name Cleanup Summary", lines)
+
+    if action == "merge_customer":
+        source = str(data.get("source", "")).strip()
+        target = str(data.get("target", "")).strip()
+        if not source or not target:
+            return "❌ Merge format: /merge Old Name -> New Name"
+        result = db.merge_customers(source, target)
+        if not result.get("ok"):
+            return f"❌ Merge failed: {result.get('reason', 'unknown error')}"
+        return _section(
+            "Customer Merge Complete",
+            [
+                f"✅ {result['source']} -> {result['target']}",
+                f"💰 Updated balance: ₹{_fmt_money(result['new_balance'])}",
+            ],
+        )
+
+    if action == "ack":
+        return "👍 Great. Agla command boliye: /all, /bal Raju, /add Raju 500"
+
+    if action == "smalltalk_help":
+        return _section(
+            "Main Ye Kaam Kar Sakta Hoon",
+            [
+                "• /add Raju 500",
+                "• /pay Raju 200",
+                "• /bal Raju",
+                "• /all, /recent, /history Raju",
+                "• /remind-all, /cleanup-names, /merge Old -> New",
+            ],
+        )
 
     return "❌ Unknown action."
 

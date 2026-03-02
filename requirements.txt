@@ -1,4 +1,5 @@
 openpyxl
+psycopg[binary]
 google-generativeai
 python-dotenv
 fastapi

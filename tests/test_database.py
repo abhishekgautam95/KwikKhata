@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from database import KhataDB
+from database import KhataDB, create_db
 
 
 class TestKhataDB(unittest.TestCase):
@@ -66,6 +66,61 @@ class TestKhataDB(unittest.TestCase):
         self.assertIn("Raju", names)
         for row in rows:
             self.assertGreaterEqual(row["pending_days"], 0)
+
+    def test_merge_customers(self):
+        self.db.add_transaction("Additya", 40)
+        self.db.add_transaction("Aditya", 60)
+
+        result = self.db.merge_customers("Additya", "Aditya")
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.db.get_balance("Additya"), None)
+        self.assertEqual(self.db.get_balance("Aditya"), 100)
+
+    def test_cleanup_noisy_customer_names(self):
+        self.db.add_transaction("Rupees Chini Additya", 10)
+        self.db.add_transaction("Aditya Rupees Namkeen", 60)
+
+        result = self.db.cleanup_noisy_customer_names()
+        self.assertTrue(result["ok"])
+        self.assertGreaterEqual(result["updated"], 1)
+        self.assertEqual(self.db.get_balance("Aditya"), 60)
+        self.assertEqual(self.db.get_balance("Additya"), 10)
+
+    def test_create_db_defaults_to_excel_backend(self):
+        prev_backend = os.environ.get("DATA_BACKEND")
+        try:
+            os.environ.pop("DATA_BACKEND", None)
+            db = create_db(self.path)
+            self.assertIsInstance(db, KhataDB)
+        finally:
+            if prev_backend is None:
+                os.environ.pop("DATA_BACKEND", None)
+            else:
+                os.environ["DATA_BACKEND"] = prev_backend
+
+    def test_create_db_postgres_without_config_fails_fast(self):
+        prev_backend = os.environ.get("DATA_BACKEND")
+        prev_url = os.environ.get("KWIKKHATA_DATABASE_URL")
+        prev_url2 = os.environ.get("DATABASE_URL")
+        try:
+            os.environ["DATA_BACKEND"] = "postgres"
+            os.environ.pop("KWIKKHATA_DATABASE_URL", None)
+            os.environ.pop("DATABASE_URL", None)
+            with self.assertRaises(RuntimeError):
+                create_db()
+        finally:
+            if prev_backend is None:
+                os.environ.pop("DATA_BACKEND", None)
+            else:
+                os.environ["DATA_BACKEND"] = prev_backend
+            if prev_url is None:
+                os.environ.pop("KWIKKHATA_DATABASE_URL", None)
+            else:
+                os.environ["KWIKKHATA_DATABASE_URL"] = prev_url
+            if prev_url2 is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = prev_url2
 
 
 if __name__ == "__main__":

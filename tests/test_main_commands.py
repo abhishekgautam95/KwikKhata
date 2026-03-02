@@ -46,6 +46,60 @@ class TestMainCommands(unittest.TestCase):
             {"customer_name": "Raju", "action": "history", "amount": 0, "limit": 3},
         )
 
+    def test_remind_all_command(self):
+        self.assertEqual(
+            parse_manual_command('/remind-all'),
+            {"customer_name": "", "action": "send_reminders", "amount": 0},
+        )
+
+    def test_natural_language_bulk_reminder_intent(self):
+        self.assertEqual(
+            parse_manual_command('ok ab jis jis pr mere paise h unko message bhej do'),
+            {"customer_name": "", "action": "send_reminders", "amount": 0},
+        )
+
+    def test_cleanup_names_command(self):
+        self.assertEqual(
+            parse_manual_command('/cleanup-names'),
+            {"customer_name": "", "action": "cleanup_names", "amount": 0},
+        )
+
+    def test_merge_command(self):
+        self.assertEqual(
+            parse_manual_command('/merge additya -> aditya'),
+            {
+                "customer_name": "",
+                "action": "merge_customer",
+                "amount": 0,
+                "source": "Additya",
+                "target": "Aditya",
+            },
+        )
+
+    def test_ack_text(self):
+        self.assertEqual(
+            parse_manual_command('ok good'),
+            {"customer_name": "", "action": "ack", "amount": 0},
+        )
+
+    def test_smalltalk_how_are_you(self):
+        self.assertEqual(
+            parse_manual_command('aur kese ho aap'),
+            {"customer_name": "", "action": "smalltalk_help", "amount": 0},
+        )
+
+    def test_smalltalk_capabilities(self):
+        self.assertEqual(
+            parse_manual_command('aap kya kya kr sakte ho'),
+            {"customer_name": "", "action": "smalltalk_help", "amount": 0},
+        )
+
+    def test_smalltalk_capabilities_short_kr(self):
+        self.assertEqual(
+            parse_manual_command('hey aap mere liye kya kr sakte ho'),
+            {"customer_name": "", "action": "smalltalk_help", "amount": 0},
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

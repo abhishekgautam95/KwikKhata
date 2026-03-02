@@ -20,7 +20,7 @@ app.include_router(whatsapp_router)
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "env": settings.app_env}
+    return {"ok": True, "env": settings.app_env, "data_backend": settings.data_backend}
 
 
 @app.on_event("startup")

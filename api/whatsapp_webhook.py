@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from database import KhataDB
+from database import create_db
 from services.message_router import MessageRouter
 from services.whatsapp_client import parse_incoming_messages, verify_webhook_token
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
-db = KhataDB()
+db = create_db()
 message_router = MessageRouter(db)
 
 
