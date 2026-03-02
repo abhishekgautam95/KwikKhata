@@ -531,6 +531,7 @@ def main() -> None:
                     "• /bal Raju",
                     "• /all, /recent, /history Raju",
                     "• /remind-all, /cleanup-names, /merge Old -> New",
+                    "• /mode compact|rich",
                 ],
             )
         else:
