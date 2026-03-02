@@ -1,6 +1,8 @@
+import hashlib
+import hmac
 import unittest
 
-from services.security_utils import hash_identifier, mask_phone, redact_sensitive
+from services.security_utils import hash_identifier, mask_phone, redact_sensitive, verify_hmac_signature
 
 
 class TestSecurityUtils(unittest.TestCase):
@@ -23,6 +25,13 @@ class TestSecurityUtils(unittest.TestCase):
         self.assertEqual(redacted["token"], "***redacted***")
         self.assertEqual(redacted["nested"]["Authorization"], "***redacted***")
         self.assertEqual(redacted["safe"], "ok")
+
+    def test_verify_hmac_signature(self):
+        body = b'{"ok":true}'
+        secret = "super-secret"
+        sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        self.assertTrue(verify_hmac_signature(body, f"sha256={sig}", secret))
+        self.assertFalse(verify_hmac_signature(body, "sha256=bad", secret))
 
 
 if __name__ == "__main__":

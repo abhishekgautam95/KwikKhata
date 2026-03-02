@@ -54,3 +54,19 @@ def redact_sensitive(value: Any) -> Any:
 
 def safe_json(value: Any) -> str:
     return json.dumps(redact_sensitive(value), ensure_ascii=True, separators=(",", ":"))
+
+
+def verify_hmac_signature(body: bytes, signature_header: str, secret: str) -> bool:
+    """
+    Supports headers:
+    - "sha256=<hex>"
+    - "<hex>"
+    """
+    if not secret:
+        return True
+    header = str(signature_header or "").strip()
+    if not header:
+        return False
+    provided = header.split("=", 1)[1].strip() if "=" in header else header
+    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(provided, expected)

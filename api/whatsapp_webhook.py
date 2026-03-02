@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from config import settings
 from database import create_db
 from services.rate_limiter import InMemorySlidingWindowRateLimiter
+from services.security_utils import verify_hmac_signature
 from services.message_router import MessageRouter
 from services.whatsapp_client import parse_incoming_messages, verify_webhook_token
 
@@ -53,6 +54,9 @@ async def receive_whatsapp_webhook(request: Request):
     max_bytes = max(1, int(settings.webhook_max_payload_kb)) * 1024
     if len(body) > max_bytes:
         raise HTTPException(status_code=413, detail="payload too large")
+    signature = request.headers.get("x-kwikkhata-signature", "")
+    if not verify_hmac_signature(body, signature, settings.webhook_signature_secret):
+        raise HTTPException(status_code=403, detail="invalid webhook signature")
 
     payload = await request.json()
     messages = parse_incoming_messages(payload)

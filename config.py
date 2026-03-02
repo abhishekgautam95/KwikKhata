@@ -25,6 +25,13 @@ class Settings:
     pii_hash_salt: str = os.getenv("PII_HASH_SALT", "")
     dashboard_token: str = os.getenv("DASHBOARD_TOKEN", "")
     default_response_mode: str = os.getenv("DEFAULT_RESPONSE_MODE", "rich")
+    default_locale: str = os.getenv("DEFAULT_LOCALE", "en-IN")
+    default_currency: str = os.getenv("DEFAULT_CURRENCY", "INR")
+    compliance_store_file: str = os.getenv("COMPLIANCE_STORE_FILE", "logs/compliance_events.jsonl")
+    compliance_retention_days: int = int(os.getenv("COMPLIANCE_RETENTION_DAYS", "365"))
+    partner_api_keys: str = os.getenv("PARTNER_API_KEYS", "")
+    webhook_signature_secret: str = os.getenv("WEBHOOK_SIGNATURE_SECRET", "")
+    metrics_window_size: int = int(os.getenv("METRICS_WINDOW_SIZE", "2000"))
 
     whatsapp_verify_token: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
     whatsapp_access_token: str = os.getenv("WHATSAPP_ACCESS_TOKEN", "")

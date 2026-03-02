@@ -19,6 +19,9 @@ Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent a
 - Security env validator (`scripts/validate_env.py`)
 - Dashboard analytics API (pending, aging, risk, collection trend)
 - Owner response mode preference (`/mode compact|rich`)
+- Versioned partner API (`/api/v1/*`) with API key auth
+- Compliance endpoints (consent log, export, delete)
+- Ops endpoints (`/ops/metrics`, `/ops/slo`) for SLA/SLO tracking
 - Rotating logs for production-style traceability
 
 ## Table of Contents
@@ -115,6 +118,21 @@ curl -s "http://127.0.0.1:8000/dashboard/summary?trend_days=14" \
   -H "x-dashboard-token: $DASHBOARD_TOKEN"
 ```
 
+Partner API examples:
+```bash
+curl -s "http://127.0.0.1:8000/api/v1/ledgers" -H "x-api-key: $PARTNER_KEY"
+curl -s -X POST "http://127.0.0.1:8000/api/v1/transactions" \
+  -H "x-api-key: $PARTNER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_name":"Raju","amount":500}'
+```
+
+Ops/SLO:
+```bash
+curl -s "http://127.0.0.1:8000/ops/metrics"
+curl -s "http://127.0.0.1:8000/ops/slo?max_error_rate=0.02&max_p95_ms=900"
+```
+
 ## Command Reference
 - `/help` -> show available commands
 - `/all` -> show all pending ledgers
@@ -157,6 +175,13 @@ All configuration lives in `.env`.
 - `CUSTOMER_PHONEBOOK_B64=...` (optional base64 encoded JSON phonebook)
 - `PII_HASH_SALT=...` (recommended 24+ chars)
 - `DEFAULT_RESPONSE_MODE=rich|compact`
+- `PARTNER_API_KEYS=key1,key2`
+- `WEBHOOK_SIGNATURE_SECRET=...`
+- `DEFAULT_LOCALE=en-IN`
+- `DEFAULT_CURRENCY=INR`
+- `COMPLIANCE_STORE_FILE=logs/compliance_events.jsonl`
+- `COMPLIANCE_RETENTION_DAYS=365`
+- `METRICS_WINDOW_SIZE=2000`
 
 ### Reminder defaults (planned-ready)
 - `REMINDER_RUN_TIME=10:00`
