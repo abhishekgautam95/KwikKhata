@@ -114,7 +114,26 @@ NAME_NOISE_WORDS = {
     "check",
     "please",
     "pls",
+    "chini",
+    "cheeni",
+    "daal",
+    "dal",
+    "namkeen",
+    "biscuit",
+    "biskut",
+    "sabun",
+    "soap",
+    "tel",
+    "oil",
+    "atta",
+    "chawal",
+    "rice",
+    "salt",
+    "namak",
+    "masala",
 }
+
+NAME_TITLE_SUFFIX = {"ji", "bhai", "bhaiya", "sir", "madam", "uncle", "aunty"}
 
 
 @dataclass
@@ -168,6 +187,15 @@ def _extract_name(text: str) -> str:
         tokens = _clean_name_tokens(_normalize_spaces(before_amount).split())
         if tokens:
             return _title_case_name(" ".join(tokens[:3]))
+
+        # Amount-first phrases like "30 rupees chini aditya" -> "Aditya"
+        after_amount = _normalize_spaces(text[amount_match.end() :].lower())
+        after_amount = re.sub(r"[^a-z\s]", " ", after_amount)
+        after_tokens = _clean_name_tokens(_normalize_spaces(after_amount).split())
+        if after_tokens:
+            if len(after_tokens) >= 2 and after_tokens[-1] in NAME_TITLE_SUFFIX:
+                return _title_case_name(" ".join(after_tokens[-2:]))
+            return _title_case_name(after_tokens[-1])
 
     # Common patterns: "Raju ka ...", "Sharma ji ne ...", "Ravi ko ..."
     patterns = [

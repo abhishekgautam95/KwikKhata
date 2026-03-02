@@ -47,6 +47,10 @@ class TestRuleParser(unittest.TestCase):
         got = parse_shopkeeper_intent("aditya 30 rupees namkeen")
         self.assertEqual(got, {"customer_name": "Aditya", "action": "add_transaction", "amount": 30})
 
+    def test_name_cleanup_amount_first_phrase(self):
+        got = parse_shopkeeper_intent("30 rupees chini aditya")
+        self.assertEqual(got, {"customer_name": "Aditya", "action": "add_transaction", "amount": 30})
+
     @patch("ai_parser._parse_with_provider")
     @patch("ai_parser.PARSER_MODE", "llm")
     def test_llm_result_repaired_to_get_all(self, mock_provider):
