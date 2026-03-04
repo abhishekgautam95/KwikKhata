@@ -20,12 +20,22 @@ venv/
 logs/
 backups/
 
-.env
-__pycache__/
-*.pyc
+# Type checking / linting caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
-venv/
-.venv/
-__pycache__/
-*.pyc
-.env
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Database files
+*.db
+
+# macOS
+.DS_Store

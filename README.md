@@ -1,28 +1,28 @@
 # KwikKhata
 
-Terminal-first Hinglish ledger assistant for local shopkeepers.  
-Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent automation.
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![CI](https://github.com/abhishekgautam95/KwikKhata/actions/workflows/pylint.yml/badge.svg)
 
-## Highlights
-- Pluggable ledger backends: Excel (`openpyxl`) + PostgreSQL (`psycopg`)
-- Hybrid intent parser (rule-based + LLM)
-- AI providers: `ollama` (primary) + `gemini` (fallback)
-- Smart confirmation flow for ambiguous requests
-- Transaction safety commands: `/undo`, `/recent`, `/history`
-- FastAPI webhook server for WhatsApp Cloud API
-- Voice note ingestion pipeline (WhatsApp media -> Whisper STT -> ledger action)
-- Image/parcha scanner pipeline (Gemini Vision -> structured entries)
-- Daily reminder scheduler (`vasooli` suggestion engine)
-- Auto backup rotation for database file
-- Backup restore utility (`scripts/restore_backup.py`)
-- Webhook abuse protection (rate-limit + payload guard)
-- Security env validator (`scripts/validate_env.py`)
-- Dashboard analytics API (pending, aging, risk, collection trend)
-- Owner response mode preference (`/mode compact|rich`)
-- Versioned partner API (`/api/v1/*`) with API key auth
-- Compliance endpoints (consent log, export, delete)
-- Ops endpoints (`/ops/metrics`, `/ops/slo`) for SLA/SLO tracking
-- Rotating logs for production-style traceability
+Terminal-first Hinglish ledger assistant for local shopkeepers.  
+Built for fast udhaar/jama entry, balance lookup, and WhatsApp-first agent automation.
+
+## Features
+- 📒 Pluggable ledger backends: Excel (`openpyxl`) + PostgreSQL (`psycopg`)
+- 🧠 Hybrid intent parser (rule-based + LLM, zero API cost for common inputs)
+- 🤖 AI providers: `ollama` (primary) + `gemini` (fallback)
+- ✅ Smart confirmation flow for ambiguous requests
+- 🔄 Transaction safety commands: `/undo`, `/recent`, `/history`
+- 📱 FastAPI webhook server for WhatsApp Cloud API
+- 🎤 Voice note ingestion pipeline (WhatsApp media → Whisper STT → ledger action)
+- 📷 Image/parcha scanner pipeline (Gemini Vision → structured entries)
+- ⏰ Daily reminder scheduler (vasooli suggestion engine)
+- 💾 Auto backup rotation for database file
+- 🔒 Webhook abuse protection (rate-limit + payload guard)
+- 📊 Dashboard analytics API (pending, aging, risk, collection trend)
+- 🏷️ Versioned partner API (`/api/v1/*`) with API key auth
+- 📋 Compliance endpoints (consent log, export, delete)
+- 📈 Ops endpoints (`/ops/metrics`, `/ops/slo`) for SLA/SLO tracking
 
 ## Table of Contents
 - [Architecture](#architecture)
@@ -30,12 +30,14 @@ Built for fast udhaar/jama entry, balance lookup, and now WhatsApp-first agent a
 - [Requirements](#requirements)
 - [Quick Start](#quick-start)
 - [Run](#run)
+- [Docker](#docker)
 - [Command Reference](#command-reference)
 - [Configuration](#configuration)
 - [Data & Backup](#data--backup)
 - [Migration](#migration)
 - [Testing](#testing)
-- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Architecture
 KwikKhata uses a simple modular flow:
@@ -53,30 +55,57 @@ KwikKhata/
 ├── ai_parser.py
 ├── database.py
 ├── requirements.txt
+├── pyproject.toml
+├── Makefile
+├── Dockerfile
+├── docker-compose.yml
 ├── .env.example
 ├── app.py
 ├── config.py
 ├── api/
+│   ├── compliance.py
+│   ├── dashboard.py
+│   ├── ops.py
+│   ├── public_v1.py
 │   └── whatsapp_webhook.py
 ├── services/
+│   ├── compliance_service.py
+│   ├── dashboard_service.py
 │   ├── ledger_agent.py
+│   ├── localization.py
 │   ├── message_router.py
+│   ├── monitoring.py
+│   ├── rate_limiter.py
 │   ├── reminder_engine.py
+│   ├── security_utils.py
 │   ├── stt_service.py
 │   ├── vision_service.py
 │   └── whatsapp_client.py
 ├── jobs/
 │   └── daily_reminder_job.py
+├── models/
+│   └── message.py
 ├── scripts/
 │   ├── env_wizard.py
-│   └── migrate_excel.py
-├── tests/
-│   ├── test_database.py
-│   ├── test_main_commands.py
-│   ├── test_parser_rules.py
-│   └── test_migration.py
-├── backups/
-└── logs/
+│   ├── migrate_excel.py
+│   ├── restore_backup.py
+│   └── validate_env.py
+└── tests/
+    ├── conftest.py
+    ├── test_compliance_service.py
+    ├── test_dashboard_service.py
+    ├── test_database.py
+    ├── test_localization.py
+    ├── test_main_commands.py
+    ├── test_migration.py
+    ├── test_monitoring.py
+    ├── test_parser_rules.py
+    ├── test_phase3_intelligence.py
+    ├── test_rate_limiter.py
+    ├── test_reminder_engine.py
+    ├── test_restore_backup.py
+    ├── test_security_utils.py
+    └── test_whatsapp_integration.py
 ```
 
 ## Requirements
@@ -131,6 +160,23 @@ Ops/SLO:
 ```bash
 curl -s "http://127.0.0.1:8000/ops/metrics"
 curl -s "http://127.0.0.1:8000/ops/slo?max_error_rate=0.02&max_p95_ms=900"
+```
+
+## Docker
+
+Build and start with Docker Compose (includes optional PostgreSQL):
+```bash
+docker-compose up --build
+```
+
+Build image only:
+```bash
+docker build -t kwikkhata:latest .
+```
+
+Run standalone container:
+```bash
+docker run -p 8000:8000 --env-file .env kwikkhata:latest
 ```
 
 ## Command Reference
@@ -224,7 +270,9 @@ python3 scripts/restore_backup.py --db kwik_khata_db.xlsx --backup-dir backups
 
 ## Testing
 ```bash
-python3 -m unittest discover -s tests -q
+pytest
+# or via Makefile:
+make test
 ```
 
 ## Roadmap
@@ -232,3 +280,12 @@ python3 -m unittest discover -s tests -q
 - Persistent queue/retry layer for webhook jobs
 - Multi-shop tenancy and role-based controls
 - Dashboard for overdue analytics and collection trend
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to set up the development environment, run tests, and submit pull requests.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+

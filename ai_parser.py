@@ -12,6 +12,7 @@ Parsing strategy:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -22,6 +23,8 @@ from typing import Any
 from dotenv import load_dotenv
 
 load_dotenv()
+
+LOGGER = logging.getLogger("kwikkhata.parser")
 
 ALLOWED_ACTIONS = {"add_transaction", "get_balance", "get_all"}
 
@@ -338,21 +341,21 @@ def _get_gemini_client():
 def _validate_intent(result: dict) -> dict | None:
     required_keys = {"customer_name", "action", "amount"}
     if not required_keys.issubset(result.keys()):
-        print("⚠️  AI response mein kuch fields missing hain.")
+        LOGGER.warning("AI response mein kuch fields missing hain.")
         return None
 
     if result["action"] not in ALLOWED_ACTIONS:
-        print("⚠️  AI action invalid mila.")
+        LOGGER.warning("AI action invalid mila.")
         return None
 
     if not isinstance(result["customer_name"], str):
-        print("⚠️  Customer name invalid format mein mila.")
+        LOGGER.warning("Customer name invalid format mein mila.")
         return None
 
     try:
         result["amount"] = int(result["amount"])
     except (TypeError, ValueError):
-        print("⚠️  AI amount invalid mila.")
+        LOGGER.warning("AI amount invalid mila.")
         return None
 
     if result["action"] != "add_transaction":
@@ -432,7 +435,7 @@ def _parse_with_gemini(user_text: str) -> dict | None:
     )
     raw_text = (response.text or "").strip()
     if not raw_text:
-        print("⚠️  Gemini se empty response mila.")
+        LOGGER.warning("Gemini se empty response mila.")
         return None
     return _validate_intent(json.loads(raw_text))
 
@@ -464,7 +467,7 @@ def _parse_with_ollama(user_text: str) -> dict | None:
     envelope = json.loads(raw)
     raw_text = (envelope.get("response") or "").strip()
     if not raw_text:
-        print("⚠️  Ollama se empty response mila.")
+        LOGGER.warning("Ollama se empty response mila.")
         return None
 
     if raw_text.startswith("```"):
@@ -551,7 +554,11 @@ def parse_shopkeeper_intent(user_text: str, include_meta: bool = False) -> dict 
             if FALLBACK_PROVIDER == AI_PROVIDER:
                 raise primary_error
 
-            print(f"⚠️  {AI_PROVIDER.title()} unavailable. {FALLBACK_PROVIDER.title()} fallback try kar rahe hain...")
+            LOGGER.warning(
+                "%s unavailable. %s fallback try kar rahe hain...",
+                AI_PROVIDER.title(),
+                FALLBACK_PROVIDER.title(),
+            )
             llm_result = _parse_with_provider(FALLBACK_PROVIDER, user_text)
             parser_source = FALLBACK_PROVIDER
             repaired = _repair_llm_intent(user_text, llm_result)
@@ -568,8 +575,8 @@ def parse_shopkeeper_intent(user_text: str, include_meta: bool = False) -> dict 
             return guarded
 
     except json.JSONDecodeError:
-        print("⚠️  AI ka response samajh nahi aaya (invalid JSON).")
+        LOGGER.warning("AI ka response samajh nahi aaya (invalid JSON).")
         return None
     except Exception as exc:
-        print(f"⚠️  AI se baat karne mein dikkat aayi: {exc}")
+        LOGGER.warning("AI se baat karne mein dikkat aayi: %s", exc)
         return None

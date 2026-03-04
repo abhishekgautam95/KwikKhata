@@ -5,11 +5,22 @@ Centralized configuration for API and automation services.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_VALID_BACKENDS = {"excel", "postgres"}
+_SECRET_FIELD_KEYWORDS = {"key", "token", "secret", "password"}
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "***"
+    return value[:4] + "***" + value[-2:]
 
 
 @dataclass(frozen=True)
@@ -48,6 +59,28 @@ class Settings:
     reminder_min_amount: float = float(os.getenv("REMINDER_MIN_AMOUNT", "500"))
     owner_whatsapp_number: str = os.getenv("OWNER_WHATSAPP_NUMBER", "")
     default_country_code: str = os.getenv("DEFAULT_COUNTRY_CODE", "+91")
+
+    def __repr__(self) -> str:
+        parts = []
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if any(kw in f.name.lower() for kw in _SECRET_FIELD_KEYWORDS):
+                value = _mask_secret(str(value))
+            parts.append(f"{f.name}={value!r}")
+        return f"Settings({', '.join(parts)})"
+
+    def validate(self) -> list[str]:
+        """Return a list of warning messages for misconfiguration."""
+        warnings: list[str] = []
+        if self.data_backend not in _VALID_BACKENDS:
+            warnings.append(
+                f"data_backend={self.data_backend!r} is invalid; choose from {sorted(_VALID_BACKENDS)}"
+            )
+        if self.data_backend == "postgres" and not self.database_url:
+            warnings.append("data_backend is 'postgres' but KWIKKHATA_DATABASE_URL is not set")
+        if not (1 <= self.app_port <= 65535):
+            warnings.append(f"app_port={self.app_port} is outside valid range 1-65535")
+        return warnings
 
 
 settings = Settings()
